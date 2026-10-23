@@ -35,8 +35,9 @@ jobs:
         with:
           cmdline-tools-version: "12266719"
           accept-android-sdk-licenses: true
-      - name: Install required Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-36"
+          packages: "platform-tools"
+      - name: Install required Android SDK platform
+        run: sdkmanager "platforms;android-36"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK and run unit tests
