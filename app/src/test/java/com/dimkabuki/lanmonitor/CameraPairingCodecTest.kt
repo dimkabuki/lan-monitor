@@ -48,6 +48,9 @@ class CameraPairingCodecTest {
         assertNull(CameraPairingCodec.decode(valid.replace("lanmonitor://pair", "https://pair")))
         assertNull(CameraPairingCodec.decode(valid.replace("cameraId=$cameraId", "cameraId=invalid")))
         assertNull(CameraPairingCodec.decode(valid.replace("token=$token", "token=short")))
+        assertNull(CameraPairingCodec.decode(valid.replace("lanmonitor://pair?", "lanmonitor://untrusted@pair?")))
+        assertNull(CameraPairingCodec.decode(valid.replace("lanmonitor://pair?", "lanmonitor://pair:8765?")))
+        assertNull(CameraPairingCodec.decode(valid.replace("lanmonitor://pair?", "lanmonitor://pair/extra?")))
     }
 
     @Test
