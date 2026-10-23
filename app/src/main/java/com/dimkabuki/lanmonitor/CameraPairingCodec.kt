@@ -56,7 +56,7 @@ internal object CameraPairingCodec {
 
         return runCatching {
             val uri = URI(raw)
-            if (uri.scheme != SCHEME || uri.host != HOST || uri.rawFragment != null) return null
+            if (uri.scheme != SCHEME || uri.host != HOST || uri.rawUserInfo != null || uri.port != -1 || uri.rawPath.isNotEmpty() || uri.rawFragment != null) return null
             val query = uri.rawQuery ?: return null
             val parameters = parseQuery(query)
 
