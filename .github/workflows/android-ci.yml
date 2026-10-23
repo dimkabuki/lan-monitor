@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "Build and upload a debug APK (manual runs only)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,14 +27,14 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
       - name: Set up Android SDK command-line tools
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           cmdline-tools-version: "12266719"
           accept-android-sdk-licenses: true
@@ -36,12 +42,12 @@ jobs:
       - name: Install required Android SDK platform
         run: sdkmanager "platforms;android-36"
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK and run unit tests
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
+        uses: gradle/actions/setup-gradle@v6
+      - name: Compile app code and run unit tests
+        run: ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin :app:testDebugUnitTest
       - name: Upload unit test reports
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lan-monitor-test-reports
           path: |
@@ -49,11 +55,39 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
-      - name: Upload debug APK
-        if: ${{ always() && hashFiles('app/build/outputs/apk/debug/app-debug.apk') != '' }}
-        uses: actions/upload-artifact@v4
+
+  build-apk:
+    name: build-apk
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_apk }}
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
         with:
-          name: lan-monitor-debug.apk
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: "12266719"
+          accept-android-sdk-licenses: true
+          packages: "platform-tools"
+      - name: Install required Android SDK platform
+        run: sdkmanager "platforms;android-36"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Build debug APK
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: lan-monitor-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
