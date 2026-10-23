@@ -18,7 +18,7 @@ internal fun createQrCodeBitmap(content: String, size: Int = 512): Bitmap {
         mapOf(EncodeHintType.MARGIN to 2),
     )
     val pixels = IntArray(size * size) { index ->
-        if (matrix[index % size, index / size]) Color.BLACK else Color.WHITE
+        if (matrix.get(index % size, index / size)) Color.BLACK else Color.WHITE
     }
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
 }
