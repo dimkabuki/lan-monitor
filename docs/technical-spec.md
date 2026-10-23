@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.5  
+**Version:** 1.6  
 **Date:** 2026-10-24  
-**Status:** M0/M1 governance and CI are complete; M2 manual-pairing WebRTC implementation is merged and CI/release are green; physical two-device validation remains pending.  
+**Status:** M0/M1 governance and CI are complete; M2 and the token/health test hardening are merged; QR pairing is being implemented in M3; all physical-device acceptance is scheduled for the MVP verification phase.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -46,13 +46,13 @@ Preferred stack:
 
 ### Current implementation status (2026-10-24)
 
-The first M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. This is an implementation snapshot, not a replacement for the target requirements in this specification:
+The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. The current M3 branch adds QR pairing. This implementation snapshot does not replace the target requirements in this specification:
 
 - Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
-- Monitor manually enters the Camera's private IPv4 address and temporary in-memory pairing token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
+- Monitor can scan a Camera QR code to import pairing details or enter the private IPv4 address and temporary in-memory token manually. The versioned QR URI contains a persistent local Camera UUID, current private IPv4 address hints, the fixed signaling port and the session token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
 - Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
 - The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
-- QR pairing, mDNS/DNS-SD discovery, stable rediscovery after an address change, two Monitors, background/screen-off operation, motion detection and adaptive quality are deliberately not part of this M2 increment; retain them in the following milestones.
+- QR generation/scanning and strict versioned payload parsing are being implemented in M3. mDNS/DNS-SD discovery and reconnection after address/Wi-Fi changes are not yet implemented; the QR's IP addresses are initial connection hints. Two Monitors, background/screen-off operation, motion detection and adaptive quality remain future work.
 - The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
 ### 3.1. Media and network boundaries
@@ -317,10 +317,10 @@ The implementation repository is `dimkabuki/lan-monitor`. As verified on 2026-10
 - Pull-request workflow: compile Kotlin code, run unit tests, upload test reports; do not publish an APK artifact for ordinary PR runs.
 - Manual workflow: optionally build and upload a debug APK after compile/tests pass.
 - Push to `main`: build, test, and publish a GitHub development pre-release containing the debug APK. Both post-merge releases have succeeded; the newer release uses the normalized `lan-monitor-debug.apk` asset name.
-- Automatically delete head branches: enabled (`delete_branch_on_merge=true`, checked 2026-10-24). The old `chore/bootstrap-ci` branch predates this setting and remains until manually deleted; automatic deletion applies to future merges.
+- Automatically delete head branches: enabled (`delete_branch_on_merge=true`, checked 2026-10-24). The old `chore/bootstrap-ci` branch has now been deleted. Future merged PR branches are removed automatically.
 - Continue to use descriptive feature/documentation branches and PRs for every code or documentation change. Do not commit directly to `main`, force-push, or merge PRs automatically.
 
-The repository bootstrap and initial M2 implementation are merged. The merge CI and development-release workflow are green; do not mark M2 end-to-end acceptance complete until the two-device physical smoke test has been executed and reviewed.
+The repository bootstrap, initial M2 implementation and M2 policy tests are merged. Physical tests remain `NOT TESTED` until the planned MVP verification phase; continue with feature implementation without treating that deferred test as a per-PR blocker, and do not claim acceptance before evidence exists.
 ### 11.3. Repository contents
 
 Maintain at least:
@@ -351,7 +351,7 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1 are complete. The initial M2 implementation is merged into `main`; code-level token comparison and decoded-frame health evaluation are being hardened and covered by deterministic JVM unit tests on `test/m2-session-hardening`. The next feature milestone is QR pairing and discovery, but do not declare M2 end-to-end acceptance complete until two physical Android devices verify live video/audio, invalid-token rejection, and stop cleanup. Prefer collecting that evidence before expanding to discovery/reconnection. At each milestone, split work into small coherent pull requests on a feature branch, and inspect the actual CI result before proceeding.
+M0/M1 are complete. M2 implementation and policy tests are merged into `main`. The current branch, `feat/m3-qr-pairing`, adds versioned QR display/scanning and payload-validation tests. The remaining M3 work is local NSD/DNS-SD discovery and reconnect after address or Wi-Fi changes. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
 
 ## 13. Rules for the coding agent
 
@@ -380,7 +380,7 @@ M0/M1 are complete. The initial M2 implementation is merged into `main`; code-le
 
 ### 13.4. Technical discipline
 
-- Prove baseline WebRTC video/audio before investing in extensive UI polish.
+- Follow the agreed workflow: implement the MVP's functional slices incrementally, using CI and deterministic tests; run the consolidated physical-device checklist after the core MVP is ready. Deferring device testing until then changes the test timing only, not the requirement for evidence before claiming MVP acceptance.
 - No clouds, analytics, telemetry, external ICE servers, media recording or collection of personal data.
 - No secrets, keystores, passwords or pairing tokens in Git.
 - Do not leave mandatory requirements as silent TODOs. For any deferred item, state the blocker, impact and next step.
