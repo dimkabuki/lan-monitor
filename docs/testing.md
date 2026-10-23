@@ -1,10 +1,22 @@
 # Testing
 
-## CI
+## Pull-request CI
 
-The intended required workflow job context is `Android CI / build-and-test`.
+The required status-check context is `build-and-test` from the **Android CI** workflow.
 
-The workflow runs for pull requests targeting `main`, pushes to `main`, and manual dispatch. It builds `:app:assembleDebug`, runs `:app:testDebugUnitTest`, uploads test reports when available, and uploads `lan-monitor-debug.apk` only if the APK was produced.
+For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish a downloadable APK.
+
+## Build an APK on demand
+
+In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs the same compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads `lan-monitor-debug-apk` as an artifact for 14 days.
+
+The APK is a debug build and is not production-signed.
+
+## Development releases
+
+A push to `main` triggers `.github/workflows/android-release.yml`. It runs the unit tests, builds the debug APK, and creates a GitHub pre-release named with the source commit's short SHA (tag pattern `snapshot-<short-sha>`). The release contains `lan-monitor-debug.apk`.
+
+These are development snapshots only, not production releases. A production release requires a deliberate versioning/signing policy and secure release-signing setup. Do not store signing keys or passwords in the repository.
 
 ## Local verification
 
