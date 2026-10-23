@@ -18,11 +18,13 @@ class PairingTokenTest {
     fun tokenMatchesOnlyTheExactNonBlankValue() {
         val token = PairingToken.generate()
 
+        val alteredToken = (if (token.first() == 'A') "B" else "A") + token.drop(1)
+
         assertTrue(PairingToken.matches(token, token))
         assertFalse(PairingToken.matches(token, ""))
         assertFalse(PairingToken.matches("", token))
         assertFalse(PairingToken.matches(" ", token))
         assertFalse(PairingToken.matches(token, token.dropLast(1)))
-        assertFalse(PairingToken.matches(token, token.lowercase().let { if (it == token) token + "x" else it }))
+        assertFalse(PairingToken.matches(token, alteredToken))
     }
 }
