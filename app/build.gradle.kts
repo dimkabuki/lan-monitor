@@ -48,5 +48,8 @@ dependencies {
     implementation("io.ktor:ktor-client-cio:3.6.0")
     implementation("io.ktor:ktor-client-websockets:3.6.0")
 
+    // Local-only QR pairing: embedded scanner activity plus ZXing QR generation/decoding.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
     testImplementation("junit:junit:4.13.2")
 }
