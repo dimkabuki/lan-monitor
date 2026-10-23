@@ -1,40 +1,99 @@
-# Testing
+# Testing and MVP acceptance checklist
 
 ## Pull-request CI
 
-The required status-check context is `build-and-test` from the **Android CI** workflow.
+The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish an APK artifact.
+Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, and versioned QR-payload validation. CI does not prove QR camera operation, WebRTC media, microphone playback, Wi-Fi reachability or Android lifecycle behavior.
 
-Current pure unit tests cover the English role labels, private IPv4 input validation, URL-safe pairing-token generation and exact token matching, and decoded-video-frame health boundaries (no frame observed, the three-second timeout boundary, and a stalled frame). These tests exercise the policy helpers deterministically; they do not prove that WebRTC can connect across two phones or that camera/microphone capture works.
+## Physical-device test timing
 
-## M2 two-device smoke test — not yet claimed as passed
+Per the agreed development workflow, physical verification is a single planned MVP acceptance phase after the core functionality is implemented. Do not block each incremental feature PR waiting for a phone test. Before the MVP phase, mark physical-only criteria **NOT TESTED**; do not infer a pass from CI. If a major implementation issue is discovered earlier, it can still be tested deliberately.
 
-Use two physical Android devices connected to the same Wi-Fi network with client isolation disabled. For this M2 baseline, keep the Camera activity open.
+## MVP acceptance — device checklist
 
-1. On the Camera device, choose **Camera** and grant camera/microphone permission when prompted.
-2. Tap **Start Camera** and wait for the local address and temporary pairing token to appear.
-3. On the other device, choose **Monitor**. Enter one of the Camera's private IPv4 addresses and the token, then tap **Connect to Camera**.
-4. Confirm video appears and decoded video-frame progress is reported. Confirm remote microphone audio is audible.
-5. Verify a wrong token is rejected and an ordinary public IPv4 address is refused by the Monitor UI.
-6. Tap **Stop Monitoring**, then **Stop Session**, and verify the UI leaves its active state.
-7. Repeat with the two device roles swapped.
+Target devices:
 
-Record the exact devices, Android versions, whether video/audio worked, time to connect, and any warnings or crashes. This smoke test is not a substitute for later network-loss, screen-off, background, reconnection, or three-hour acceptance tests.
+- [ ] Samsung Galaxy S20 FE, Android 13 / One UI 5.1.
+- [ ] Samsung Galaxy S25, Android 16 / One UI 8.5.
+
+Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 as Monitor; (B) S25 as Camera and S20 FE as Monitor. For each test, record PASS / FAIL / NOT TESTED and concise evidence.
+
+### 1. Install and permissions
+
+- [ ] Install the same MVP debug APK on both devices.
+- [ ] App launches; role selection and all visible UI text are in English.
+- [ ] Camera role asks for camera and microphone permissions only when starting a session.
+- [ ] Monitor QR scanner requests camera permission when needed; denial is handled with a clear message and manual-entry fallback remains usable.
+- [ ] Permission revocation or a missing camera/microphone leads to a truthful error, not a false Connected/Streaming state.
+
+### 2. Pairing and connection
+
+- [ ] Camera starts from an explicit user tap and shows its pairing QR and temporary token.
+- [ ] Monitor scans the Camera QR, parses it, and loads a private LAN address plus token.
+- [ ] A malformed/unsupported QR is rejected without crashing.
+- [ ] Manual IP/token entry remains available as a fallback.
+- [ ] Wrong pairing token is rejected; public or malformed IPv4 addresses are refused.
+- [ ] Initial connection completes within 10 seconds on the working home LAN.
+- [ ] Re-scan/re-pair behavior is understandable after Camera Stop/Start creates a new session token.
+
+### 3. Audio/video and truthfulness
+
+- [ ] Live video is visible on Monitor and decoded frame progress advances.
+- [ ] Remote microphone audio is audible; Monitor mute/unmute control works once implemented.
+- [ ] Camera does not report Streaming from ICE state alone.
+- [ ] Stop Monitoring and Stop Session close their connection/capture paths and clear active UI state.
+- [ ] Repeated Start/Stop actions do not create duplicate servers, capture tracks or peer connections.
+
+### 4. LAN-only behavior and rediscovery
+
+- [ ] Video, audio, and signaling continue with WAN/internet unavailable while local Wi-Fi remains functional.
+- [ ] Both devices on the same Wi-Fi can communicate with client isolation disabled.
+- [ ] Monitor rediscovers the same Camera after a DHCP/IP change without rescanning a QR code.
+- [ ] Following a brief Wi-Fi disconnect and restoration, media automatically reconnects within the 15-second target.
+- [ ] A network that blocks peer-to-peer LAN traffic produces a useful failure state rather than a false success.
+- [ ] No external ICE servers, cloud signaling, analytics, telemetry, or media recording are present.
+
+### 5. Background, notifications, and movement
+
+- [ ] Monitor remains active after switching to another app.
+- [ ] Monitor continues to receive/analyze frames while the screen is off, to the extent allowed by Android/Samsung policies.
+- [ ] While Monitor is active and foregrounded, its screen stays awake.
+- [ ] Confirmed motion creates a normal Android notification; notification permission denial is explained clearly.
+- [ ] No more than one notification is sent within the 8-second cooldown.
+- [ ] In stable static conditions, no more than one false movement notification occurs in 30 minutes; record lighting and test conditions.
+
+### 6. Cleanup and resilience
+
+- [ ] Camera capture/signaling stops promptly when requested.
+- [ ] Monitor detects stopped/missing video frames within 3 seconds and does not remain marked healthy.
+- [ ] Stop, navigating Back, swiping the app away from Recents, and Close all have the documented lifecycle behavior.
+- [ ] No ongoing service notification, wake lock, socket or media capture is left behind after stop, when these features are implemented.
+- [ ] Wi-Fi loss, Camera app closure, invalid signaling and peer disconnection yield truthful status and recover when expected.
+- [ ] No automatic start after reboot.
+
+### 7. Three-hour stability run
+
+For each of the two role assignments:
+
+- [ ] Run continuously for three hours under ordinary home conditions, without charging the phones.
+- [ ] Include several known movements and one controlled Wi-Fi disconnect/reconnect.
+- [ ] Record disconnects/reconnects, video/audio interruptions, movement notifications/false alerts, quality changes, battery drain, temperature, memory issues and crashes.
+- [ ] Confirm no unrecoverable hang or crash.
+
+Never record or retain room audio/video as diagnostic evidence. Use technical logs and written observations only.
+
+## Evidence record
+
+For every failed or not-tested item, note the acceptance ID, device/OS, app build SHA/release, reproduction steps, actual result, and relevant technical logs without media contents. Report AC-01–AC-15 with `PASS`, `FAIL` or `NOT TESTED`. Do not mark physical-device acceptance complete until both role assignments and the required checklist have been reviewed.
 
 ## Build an APK on demand
 
-In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads the `lan-monitor-debug-apk` artifact for 14 days.
-
-The APK is a debug build, signed with the Android debug key, and is not production-signed.
+In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs compile/tests first, then builds `:app:assembleDebug` and uploads the `lan-monitor-debug-apk` artifact for 14 days. This is a debug build, not production-signed.
 
 ## Development releases
 
-A push to `main` triggers `.github/workflows/android-release.yml`. It runs the unit tests, builds the debug APK, and creates a GitHub pre-release named with the source commit's short SHA (tag pattern `snapshot-<short-sha>`). New releases attach the APK as `lan-monitor-debug.apk`.
-
-The first successful release, [`snapshot-d166a2f`](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d166a2f), contains the original asset name `app-debug.apk`; the workflow was subsequently updated to normalize the asset name for future releases. Existing published assets are not renamed retroactively.
-
-These are development snapshots only, not production releases. A production release requires a deliberate versioning/signing policy and secure release-signing setup. Do not store signing keys or passwords in the repository.
+A push to main triggers the Android Development Release workflow. It runs tests, builds the debug APK, and creates a GitHub pre-release named `snapshot-<short-sha>`, with asset `lan-monitor-debug.apk`. This is a development snapshot, not a production release.
 
 ## Local verification
 
@@ -45,7 +104,3 @@ With JDK 17 and Android SDK Platform 36 installed:
 ```
 
 Use `:app:assembleDebug` additionally when a complete installable APK is needed.
-
-## Remaining acceptance scope
-
-M2 introduces the first attempt at direct LAN WebRTC media but does not yet prove or implement QR pairing, mDNS/DNS-SD rediscovery, background/screen-off monitoring, multiple Monitors, movement detection, or automatic reconnect after IP/Wi-Fi changes. Later milestones must add deterministic tests for state transitions, media-progress timeouts, retry/backoff, signaling validation, and synthetic-frame movement detection. Final acceptance must include both Samsung device role assignments, screen-off tests, and the specified three-hour runs.
