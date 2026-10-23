@@ -9,7 +9,7 @@ The initial app is a single native Android application using Kotlin and Jetpack 
 | Component | Version / value |
 |---|---|
 | JDK | 17 |
-| Gradle Wrapper | 8.13 |
+| Gradle Wrapper | 8.14.6 |
 | Android Gradle Plugin | 8.13.2 |
 | Kotlin Gradle plugin | 2.4.21 |
 | Compose BOM | 2026.06.01 |
@@ -19,6 +19,13 @@ The initial app is a single native Android application using Kotlin and Jetpack 
 | Namespace / application ID | `com.dimkabuki.lanmonitor` |
 
 Re-check official compatibility tables before updating pinned versions. The target is API 36; targeting API 37 or later requires implementing and testing the version-gated local-network permission flow in the technical specification.
+
+## CI and development distribution
+
+- Pull requests targeting `main` compile debug Kotlin code, run unit tests, and publish test reports as temporary artifacts. They do not publish an APK artifact.
+- Manual Android CI runs can optionally build and upload a debug APK after checks pass.
+- Pushes to `main` trigger a development pre-release containing a debug APK. The APK is not production-signed; production signing/versioning is a separate future decision.
+- GitHub Releases are used only for distributing build artifacts. The app's runtime architecture must remain local-network-only.
 
 ## Intended runtime boundaries
 
