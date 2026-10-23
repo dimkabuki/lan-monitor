@@ -6,7 +6,7 @@ The required status-check context is `build-and-test` from the **Android CI** wo
 
 For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish an APK artifact.
 
-Current pure unit tests cover the English role labels and private IPv4 input validation. They do not prove that WebRTC can connect across two phones or that camera/microphone capture works.
+Current pure unit tests cover the English role labels, private IPv4 input validation, URL-safe pairing-token generation and exact token matching, and decoded-video-frame health boundaries (no frame observed, the three-second timeout boundary, and a stalled frame). These tests exercise the policy helpers deterministically; they do not prove that WebRTC can connect across two phones or that camera/microphone capture works.
 
 ## M2 two-device smoke test — not yet claimed as passed
 
