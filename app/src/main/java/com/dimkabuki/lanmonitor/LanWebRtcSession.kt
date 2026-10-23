@@ -14,6 +14,7 @@ import io.ktor.server.cio.CIO as ServerCIO
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.routing.routing
+import io.ktor.server.request.origin
 import io.ktor.server.websocket.WebSockets as ServerWebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
@@ -241,10 +242,11 @@ class LanWebRtcSession(
                 }
             } finally {
                 if (!shutdownRequested && !disposed) {
+                    closePeerConnection()
                     updateUi {
                         isBusy = false
                         sessionActive = false
-                        if (status.startsWith("Streaming") || status.startsWith("Transport")) {
+                        if (!status.startsWith("Connection failed") && !status.startsWith("Signaling error")) {
                             status = "Signaling disconnected."
                         }
                     }
@@ -337,6 +339,11 @@ class LanWebRtcSession(
             install(ServerWebSockets)
             routing {
                 webSocket("/signal") {
+                    // The listener binds all interfaces, but accepts only RFC 1918/link-local IPv4 peers.
+                    if (!LocalLanAddress.isPrivateIpv4(call.request.origin.remoteHost)) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
+                        return@webSocket
+                    }
                     if (!serverConnectionClaimed.compareAndSet(false, true)) {
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Only one Monitor is supported in M2"))
                         return@webSocket
