@@ -11,7 +11,7 @@ import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO as ServerCIO
-import io.ktor.server.engine.ApplicationEngine
+import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.routing.routing
 import io.ktor.server.request.origin
@@ -93,7 +93,7 @@ class LanWebRtcSession(
     @Volatile private var remoteDescriptionSet = false
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
-    private var cameraServer: ApplicationEngine? = null
+    private var cameraServer: EmbeddedServer<*, *>? = null
     private var monitorClient: HttpClient? = null
     private var monitorConnectionJob: Job? = null
     private var healthJob: Job? = null
