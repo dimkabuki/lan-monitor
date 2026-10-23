@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -30,11 +32,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import org.webrtc.SurfaceViewRenderer
 
 class MainActivity : ComponentActivity() {
@@ -82,6 +87,11 @@ private fun CameraScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val session = remember { LanWebRtcSession(context, AppRole.CAMERA) }
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    val pairingQrBitmap = remember(session.pairingPayload) {
+        session.pairingPayload.takeIf { it.isNotBlank() }?.let { payload ->
+            runCatching { createQrCodeBitmap(payload, size = 480) }.getOrNull()
+        }
+    }
 
     DisposableEffect(session) {
         onDispose {
@@ -150,10 +160,21 @@ private fun CameraScreen(onBack: () -> Unit) {
             Text(session.cameraAddresses.joinToString(separator = "\n"))
             Text("Monitor connects to port ${LanWebRtcSession.SIGNAL_PORT}. Use the address on the same Wi-Fi network.")
         }
+        if (pairingQrBitmap != null) {
+            Text("Scan to pair", style = MaterialTheme.typography.titleMedium)
+            Image(
+                bitmap = pairingQrBitmap.asImageBitmap(),
+                contentDescription = "Lan Monitor Camera pairing QR code",
+                modifier = Modifier.size(220.dp),
+            )
+            Text("Scan this code on the Monitor device. It contains the current LAN address hints and temporary pairing secret.")
+        } else if (session.pairingPayload.isNotBlank()) {
+            Text("Pairing QR code could not be generated. Use the manual address/token fields on Monitor.")
+        }
         if (session.pairingToken.isNotEmpty()) {
-            Text("Temporary pairing token", style = MaterialTheme.typography.titleMedium)
+            Text("Temporary pairing token (manual fallback)", style = MaterialTheme.typography.titleMedium)
             Text(session.pairingToken, style = MaterialTheme.typography.headlineSmall)
-            Text("Enter this token on the Monitor device. It is held only in memory and is not logged.")
+            Text("The token is held only in memory and is not logged.")
         }
         Text(
             "Keep this screen open for the M2 baseline. Background and screen-off operation will be addressed in a later milestone.",
@@ -169,6 +190,42 @@ private fun MonitorScreen(onBack: () -> Unit) {
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
     var host by rememberSaveable { mutableStateOf("") }
     var token by rememberSaveable { mutableStateOf("") }
+    var pairedCameraId by rememberSaveable { mutableStateOf("") }
+
+    val scanLauncher = rememberLauncherForActivityResult(
+        contract = ScanContract(),
+    ) { result ->
+        val raw = result.contents
+        if (raw.isNullOrBlank()) {
+            session.showMessage("QR scan cancelled.")
+        } else {
+            val pairing = CameraPairingCodec.decode(raw)
+            if (pairing == null) {
+                session.showMessage("This QR code is not a valid Lan Monitor pairing code.")
+            } else {
+                host = pairing.addresses.first()
+                token = pairing.token
+                pairedCameraId = pairing.cameraId
+                session.showMessage("Pairing details loaded. Check the Camera address, then tap Connect.")
+            }
+        }
+    }
+
+    val scanPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            scanLauncher.launch(
+                ScanOptions()
+                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setPrompt("Scan the Camera pairing QR code")
+                    .setBeepEnabled(false)
+                    .setOrientationLocked(false),
+            )
+        } else {
+            session.showMessage("Camera permission is required to scan a pairing QR code.")
+        }
+    }
 
     DisposableEffect(session) {
         onDispose {
@@ -194,6 +251,28 @@ private fun MonitorScreen(onBack: () -> Unit) {
             },
             modifier = Modifier.fillMaxWidth().height(240.dp),
         )
+        Button(
+            onClick = {
+                if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    scanLauncher.launch(
+                        ScanOptions()
+                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            .setPrompt("Scan the Camera pairing QR code")
+                            .setBeepEnabled(false)
+                            .setOrientationLocked(false),
+                    )
+                } else {
+                    scanPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            },
+            enabled = !session.isBusy && !session.sessionActive,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Scan Camera QR")
+        }
+        if (pairedCameraId.isNotBlank()) {
+            Text("Camera identity: $pairedCameraId", style = MaterialTheme.typography.bodySmall)
+        }
         OutlinedTextField(
             value = host,
             onValueChange = { host = it },
