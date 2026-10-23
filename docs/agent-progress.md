@@ -4,9 +4,9 @@
 
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch is `main`.
 - **Main head:** `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`, merge commit for [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3).
-- **M2 implementation:** PR #3 is merged. The final PR CI run [#33](https://github.com/dimkabuki/lan-monitor/actions/runs/40037108359) and post-merge development release run [#34](https://github.com/dimkabuki/lan-monitor/actions/runs/40037693854) succeeded. The release attached a debug APK; it is not production-signed.
+- **M2 implementation:** PR #3 is merged. The final M2 PR CI run [#33](https://github.com/dimkabuki/lan-monitor/actions/runs/40037108359) and post-merge development release workflow [run #3](https://github.com/dimkabuki/lan-monitor/actions/runs/40037693854) succeeded. The release attached a debug APK; it is not production-signed.
 - **Physical integration status:** NOT TESTED. CI confirms code compilation and unit tests, not a working live video/audio session between two Android devices. Do not mark M2 end-to-end acceptance passed until the owner runs the two-device smoke test described in [testing.md](testing.md).
-- **Active branch:** `test/m2-session-hardening`. This branch extracts two small policies from the Android/WebRTC controller so they are directly testable on the JVM:
+- **Active branch / open PR:** [`test/m2-session-hardening`, PR #4](https://github.com/dimkabuki/lan-monitor/pull/4). This branch extracts two small policies from the Android/WebRTC controller so they are directly testable on the JVM:
   - `PairingToken` generates a 96-bit cryptographically random Base64 URL-safe token and compares nonblank token values using `MessageDigest.isEqual`.
   - `VideoFrameHealth` evaluates decoded-frame age against the three-second stall timeout, distinguishing no observed frame from a stalled stream.
 - **Tests added:** token format/exact-match tests; no-frame, exact-boundary, stalled-frame, monotonic-time defensive behavior, and invalid-timeout tests. The PR CI must pass before merge. None of these tests substitutes for live device validation.
