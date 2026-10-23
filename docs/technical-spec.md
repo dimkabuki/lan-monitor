@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.6  
+**Version:** 1.7  
 **Date:** 2026-10-24  
-**Status:** M0/M1 governance and CI are complete; M2 and the token/health test hardening are merged; QR pairing is being implemented in M3; all physical-device acceptance is scheduled for the MVP verification phase.  
+**Status:** M0/M1 governance and CI are complete; M2 and the token/health test hardening are merged; initial QR pairing is under review in PR #5; mDNS/DNS-SD discovery and reconnection are the next M3 slice; physical-device acceptance is scheduled for the MVP verification phase.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -46,7 +46,7 @@ Preferred stack:
 
 ### Current implementation status (2026-10-24)
 
-The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. The current M3 branch adds QR pairing. This implementation snapshot does not replace the target requirements in this specification:
+The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. Initial QR-based pairing is implemented in [PR #5](https://github.com/dimkabuki/lan-monitor/pull/5); local discovery and automatic rediscovery are still to come. This implementation snapshot does not replace the target requirements in this specification:
 
 - Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
 - Monitor can scan a Camera QR code to import pairing details or enter the private IPv4 address and temporary in-memory token manually. The versioned QR URI contains a persistent local Camera UUID, current private IPv4 address hints, the fixed signaling port and the session token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
@@ -345,7 +345,7 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M0 — Repository governance: COMPLETE (2026-10-23).** Default branch `main`, active PR-only ruleset, required `build-and-test` status check, deletion/force-push protection, and squash-only merge settings are verified.
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
 - **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
-- **M3 — Pairing and discovery:** QR token, local discovery, manual fallback and reconnection after DHCP/IP/Wi-Fi changes.
+- **M3 — Pairing and discovery: IN PROGRESS.** PR #5 adds versioned QR pairing and preserves manual fallback. Remaining scope includes local NSD/DNS-SD discovery and reconnection after DHCP/IP/Wi-Fi changes.
 - **M4 — Lifecycle:** permission handling, foreground services, background restrictions, stop behavior and cleanup.
 - **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
