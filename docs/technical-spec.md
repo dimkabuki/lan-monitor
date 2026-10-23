@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Date:** 2026-10-24  
-**Status:** Functional requirements retained; governance/CI/release baseline verified; initial M2 manual-pairing WebRTC implementation is in review and has not yet been physically validated.  
+**Status:** M0/M1 governance and CI are complete; M2 manual-pairing WebRTC implementation is merged and CI/release are green; physical two-device validation remains pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -46,7 +46,7 @@ Preferred stack:
 
 ### Current implementation status (2026-10-24)
 
-The first M2 implementation is being reviewed in [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3). This is an implementation snapshot, not a replacement for the target requirements in this specification:
+The first M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. This is an implementation snapshot, not a replacement for the target requirements in this specification:
 
 - Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
 - Monitor manually enters the Camera's private IPv4 address and temporary in-memory pairing token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
@@ -317,10 +317,10 @@ The implementation repository is `dimkabuki/lan-monitor`. As verified on 2026-10
 - Pull-request workflow: compile Kotlin code, run unit tests, upload test reports; do not publish an APK artifact for ordinary PR runs.
 - Manual workflow: optionally build and upload a debug APK after compile/tests pass.
 - Push to `main`: build, test, and publish a GitHub development pre-release containing the debug APK. Both post-merge releases have succeeded; the newer release uses the normalized `lan-monitor-debug.apk` asset name.
-- Automatically delete head branches: currently disabled (`delete_branch_on_merge=false`, checked 2026-10-24). Enable via **Settings → General → Pull Requests → Automatically delete head branches**; this repository setting still requires an owner UI action.
+- Automatically delete head branches: enabled (`delete_branch_on_merge=true`, checked 2026-10-24). The old `chore/bootstrap-ci` branch predates this setting and remains until manually deleted; automatic deletion applies to future merges.
 - Continue to use descriptive feature/documentation branches and PRs for every code or documentation change. Do not commit directly to `main`, force-push, or merge PRs automatically.
 
-The repository bootstrap is complete. M2 is now in progress; do not mark its end-to-end acceptance complete until the required CI run passes and the two-device physical smoke test has been executed.
+The repository bootstrap and initial M2 implementation are merged. The merge CI and development-release workflow are green; do not mark M2 end-to-end acceptance complete until the two-device physical smoke test has been executed and reviewed.
 ### 11.3. Repository contents
 
 Maintain at least:
@@ -344,14 +344,14 @@ A release APK may be signed later, once the owner provides/configures a stable s
 
 - **M0 — Repository governance: COMPLETE (2026-10-23).** Default branch `main`, active PR-only ruleset, required `build-and-test` status check, deletion/force-push protection, and squash-only merge settings are verified.
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
-- **M2 — Minimal WebRTC: IN PROGRESS.** Initial implementation is under review in PR #3: manual private-IPv4/token pairing, Camera-hosted WebSocket signaling, direct WebRTC audio/video tracks and a decoded-frame health signal. Automated build/test and physical-device verification remain outstanding.
+- **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
 - **M3 — Pairing and discovery:** QR token, local discovery, manual fallback and reconnection after DHCP/IP/Wi-Fi changes.
 - **M4 — Lifecycle:** permission handling, foreground services, background restrictions, stop behavior and cleanup.
 - **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1 are complete. M2 implementation is in `feat/m2-webrtc-baseline`; review and fix CI before merge, then manually test on two physical devices. Only after that end-to-end slice works should the next milestone add QR pairing and discovery. At each milestone, split work into small coherent pull requests or commits on the working branch, with CI checked before proceeding.
+M0/M1 are complete. The initial M2 implementation is merged into `main`; code-level token comparison and decoded-frame health evaluation are being hardened and covered by deterministic JVM unit tests on `test/m2-session-hardening`. The next feature milestone is QR pairing and discovery, but do not declare M2 end-to-end acceptance complete until two physical Android devices verify live video/audio, invalid-token rejection, and stop cleanup. Prefer collecting that evidence before expanding to discovery/reconnection. At each milestone, split work into small coherent pull requests on a feature branch, and inspect the actual CI result before proceeding.
 
 ## 13. Rules for the coding agent
 

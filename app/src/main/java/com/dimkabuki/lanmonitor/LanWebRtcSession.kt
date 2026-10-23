@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import io.ktor.client.HttpClient
@@ -55,8 +54,6 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoSink
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -157,7 +154,7 @@ class LanWebRtcSession(
             try {
                 ensurePeerConnectionFactory()
                 startLocalMedia()
-                val token = createPairingToken()
+                val token = PairingToken.generate()
                 startCameraSignalingServer(token)
                 val addresses = LocalLanAddress.privateIpv4Addresses()
                 updateUi {
@@ -370,7 +367,7 @@ class LanWebRtcSession(
                             if (!authenticated) {
                                 val suppliedToken = message.optString("token")
                                 val isValidJoin = message.optString("type") == "join" &&
-                                    secureTokenEquals(token, suppliedToken)
+                                    PairingToken.matches(token, suppliedToken)
                                 if (!isValidJoin) {
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
@@ -640,19 +637,21 @@ class LanWebRtcSession(
             while (isActive && !shutdownRequested && !disposed) {
                 delay(HEALTH_INTERVAL_MS)
                 if (role != AppRole.MONITOR || monitorSender == null) continue
-                val lastFrameAt = lastRemoteVideoFrameAtMs
-                val frameAge = if (lastFrameAt == 0L) Long.MAX_VALUE else SystemClock.elapsedRealtime() - lastFrameAt
-                val healthy = frameAge <= VIDEO_STALL_TIMEOUT_MS
+                val health = VideoFrameHealth.evaluate(
+                    lastFrameAtMs = lastRemoteVideoFrameAtMs,
+                    nowMs = SystemClock.elapsedRealtime(),
+                    stallTimeoutMs = VIDEO_STALL_TIMEOUT_MS,
+                )
                 sendSignal(
                     JSONObject()
                         .put("type", "health")
-                        .put("videoHealthy", healthy)
-                        .put("lastFrameAgeMs", if (frameAge == Long.MAX_VALUE) -1 else frameAge),
+                        .put("videoHealthy", health.isHealthy)
+                        .put("lastFrameAgeMs", health.frameAgeMs ?: -1L),
                 )
-                if (healthy) {
+                if (health.isHealthy) {
                     updateStatus("Streaming: decoded video frames are advancing.")
-                } else if (lastFrameAt != 0L) {
-                    updateStatus("Stream interrupted: no decoded video frames for ${frameAge} ms.")
+                } else if (health.frameAgeMs != null) {
+                    updateStatus("Stream interrupted: no decoded video frames for ${health.frameAgeMs} ms.")
                 } else if (peerConnection != null) {
                     updateStatus("Connected; waiting for the first decoded video frame.")
                 }
@@ -743,20 +742,6 @@ class LanWebRtcSession(
                 if (!disposed || !isBusy) block()
             }
         }
-    }
-
-    private fun createPairingToken(): String {
-        val bytes = ByteArray(12)
-        SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(
-            bytes,
-            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
-        )
-    }
-
-    private fun secureTokenEquals(expected: String, actual: String): Boolean {
-        if (expected.isBlank() || actual.isBlank()) return false
-        return MessageDigest.isEqual(expected.toByteArray(Charsets.UTF_8), actual.toByteArray(Charsets.UTF_8))
     }
 
     companion object {
