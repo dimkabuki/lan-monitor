@@ -4,17 +4,19 @@
 
 The required status-check context is `build-and-test` from the **Android CI** workflow.
 
-For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish a downloadable APK.
+For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish an APK artifact.
 
 ## Build an APK on demand
 
-In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs the same compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads `lan-monitor-debug-apk` as an artifact for 14 days.
+In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs the same compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads the `lan-monitor-debug-apk` artifact for 14 days.
 
-The APK is a debug build and is not production-signed.
+The APK is a debug build, signed with the Android debug key, and is not production-signed.
 
 ## Development releases
 
-A push to `main` triggers `.github/workflows/android-release.yml`. It runs the unit tests, builds the debug APK, and creates a GitHub pre-release named with the source commit's short SHA (tag pattern `snapshot-<short-sha>`). The release contains `lan-monitor-debug.apk`.
+A push to `main` triggers `.github/workflows/android-release.yml`. It runs the unit tests, builds the debug APK, and creates a GitHub pre-release named with the source commit's short SHA (tag pattern `snapshot-<short-sha>`). New releases attach the APK as `lan-monitor-debug.apk`.
+
+The first successful release, [`snapshot-d166a2f`](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d166a2f), contains the original asset name `app-debug.apk`; the workflow was subsequently updated to normalize the asset name for future releases. Existing published assets are not renamed retroactively.
 
 These are development snapshots only, not production releases. A production release requires a deliberate versioning/signing policy and secure release-signing setup. Do not store signing keys or passwords in the repository.
 
