@@ -6,9 +6,25 @@ The required status-check context is `build-and-test` from the **Android CI** wo
 
 For each pull request targeting `main`, CI compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. The PR workflow does not build or publish an APK artifact.
 
+Current pure unit tests cover the English role labels and private IPv4 input validation. They do not prove that WebRTC can connect across two phones or that camera/microphone capture works.
+
+## M2 two-device smoke test — not yet claimed as passed
+
+Use two physical Android devices connected to the same Wi-Fi network with client isolation disabled. For this M2 baseline, keep the Camera activity open.
+
+1. On the Camera device, choose **Camera** and grant camera/microphone permission when prompted.
+2. Tap **Start Camera** and wait for the local address and temporary pairing token to appear.
+3. On the other device, choose **Monitor**. Enter one of the Camera's private IPv4 addresses and the token, then tap **Connect to Camera**.
+4. Confirm video appears and decoded video-frame progress is reported. Confirm remote microphone audio is audible.
+5. Verify a wrong token is rejected and an ordinary public IPv4 address is refused by the Monitor UI.
+6. Tap **Stop Monitoring**, then **Stop Session**, and verify the UI leaves its active state.
+7. Repeat with the two device roles swapped.
+
+Record the exact devices, Android versions, whether video/audio worked, time to connect, and any warnings or crashes. This smoke test is not a substitute for later network-loss, screen-off, background, reconnection, or three-hour acceptance tests.
+
 ## Build an APK on demand
 
-In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs the same compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads the `lan-monitor-debug-apk` artifact for 14 days.
+In GitHub, open **Actions → Android CI → Run workflow** and enable **Build and upload a debug APK**. The workflow runs compile/tests first; if they pass, the separate `build-apk` job builds `:app:assembleDebug` and uploads the `lan-monitor-debug-apk` artifact for 14 days.
 
 The APK is a debug build, signed with the Android debug key, and is not production-signed.
 
@@ -25,11 +41,11 @@ These are development snapshots only, not production releases. A production rele
 With JDK 17 and Android SDK Platform 36 installed:
 
 ```sh
-./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+./gradlew --no-daemon :app:compileDebugKotlin :app:testDebugUnitTest
 ```
 
-Current unit coverage checks the English role labels. It does not test media, networking, background lifecycle, movement detection, or reconnect behavior because those features are not implemented.
+Use `:app:assembleDebug` additionally when a complete installable APK is needed.
 
-## Acceptance scope
+## Remaining acceptance scope
 
-No emulator or physical-device acceptance test is claimed by M1. Later milestones must add deterministic tests for state transitions, media-progress timeouts, retry/backoff, signaling validation, and synthetic-frame movement detection. Final acceptance must include both Samsung device role assignments, screen-off tests, and the specified three-hour runs.
+M2 introduces the first attempt at direct LAN WebRTC media but does not yet prove or implement QR pairing, mDNS/DNS-SD rediscovery, background/screen-off monitoring, multiple Monitors, movement detection, or automatic reconnect after IP/Wi-Fi changes. Later milestones must add deterministic tests for state transitions, media-progress timeouts, retry/backoff, signaling validation, and synthetic-frame movement detection. Final acceptance must include both Samsung device role assignments, screen-off tests, and the specified three-hour runs.

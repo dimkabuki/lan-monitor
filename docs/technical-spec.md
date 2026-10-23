@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** 2026-10-24  
-**Status:** Functional requirements retained; repository governance and CI baseline verified, including on-demand APK builds and automated development pre-releases.  
+**Status:** Functional requirements retained; governance/CI/release baseline verified; initial M2 manual-pairing WebRTC implementation is in review and has not yet been physically validated.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -43,6 +43,17 @@ Preferred stack:
 - `NsdManager` / DNS-SD (mDNS) for local Camera rediscovery, with a manual local-address fallback for diagnostics and recovery.
 - Coroutines and `Flow` where they simplify lifecycle-safe asynchronous state handling.
 - Gradle and GitHub Actions for automated builds, unit tests, and APK artifacts.
+
+### Current implementation status (2026-10-24)
+
+The first M2 implementation is being reviewed in [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3). This is an implementation snapshot, not a replacement for the target requirements in this specification:
+
+- Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
+- Monitor manually enters the Camera's private IPv4 address and temporary in-memory pairing token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
+- Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
+- The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
+- QR pairing, mDNS/DNS-SD discovery, stable rediscovery after an address change, two Monitors, background/screen-off operation, motion detection and adaptive quality are deliberately not part of this M2 increment; retain them in the following milestones.
+- The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
 ### 3.1. Media and network boundaries
 
@@ -305,10 +316,11 @@ The implementation repository is `dimkabuki/lan-monitor`. As verified on 2026-10
 - Allowed merge method: squash only; merge commits, rebase merges, and auto-merge are disabled.
 - Pull-request workflow: compile Kotlin code, run unit tests, upload test reports; do not publish an APK artifact for ordinary PR runs.
 - Manual workflow: optionally build and upload a debug APK after compile/tests pass.
-- Push to `main`: build, test, and publish a GitHub development pre-release containing the debug APK. The release workflow succeeded for the first post-merge push.
+- Push to `main`: build, test, and publish a GitHub development pre-release containing the debug APK. Both post-merge releases have succeeded; the newer release uses the normalized `lan-monitor-debug.apk` asset name.
+- Automatically delete head branches: currently disabled (`delete_branch_on_merge=false`, checked 2026-10-24). Enable via **Settings → General → Pull Requests → Automatically delete head branches**; this repository setting still requires an owner UI action.
 - Continue to use descriptive feature/documentation branches and PRs for every code or documentation change. Do not commit directly to `main`, force-push, or merge PRs automatically.
 
-The empty-repository bootstrap sequence is complete. The next engineering milestone is M2 — minimal LAN-local WebRTC with truthful connection/media-health state, following this specification.
+The repository bootstrap is complete. M2 is now in progress; do not mark its end-to-end acceptance complete until the required CI run passes and the two-device physical smoke test has been executed.
 ### 11.3. Repository contents
 
 Maintain at least:
@@ -332,14 +344,14 @@ A release APK may be signed later, once the owner provides/configures a stable s
 
 - **M0 — Repository governance: COMPLETE (2026-10-23).** Default branch `main`, active PR-only ruleset, required `build-and-test` status check, deletion/force-push protection, and squash-only merge settings are verified.
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
-- **M2 — Minimal WebRTC:** basic local signaling and live audio/video between two phones, with truthful connection state.
+- **M2 — Minimal WebRTC: IN PROGRESS.** Initial implementation is under review in PR #3: manual private-IPv4/token pairing, Camera-hosted WebSocket signaling, direct WebRTC audio/video tracks and a decoded-frame health signal. Automated build/test and physical-device verification remain outstanding.
 - **M3 — Pairing and discovery:** QR token, local discovery, manual fallback and reconnection after DHCP/IP/Wi-Fi changes.
 - **M4 — Lifecycle:** permission handling, foreground services, background restrictions, stop behavior and cleanup.
 - **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1 are complete; proceed with M2 on a new feature branch from `main`. Prove a basic LAN-local WebRTC audio/video session between two phones and truthful connection/media-health state before expanding into QR pairing, persistent rediscovery, motion detection, adaptation, or two-Monitor resilience. At each milestone, split work into small coherent pull requests or commits on the working branch, with CI checked before proceeding.
+M0/M1 are complete. M2 implementation is in `feat/m2-webrtc-baseline`; review and fix CI before merge, then manually test on two physical devices. Only after that end-to-end slice works should the next milestone add QR pairing and discovery. At each milestone, split work into small coherent pull requests or commits on the working branch, with CI checked before proceeding.
 
 ## 13. Rules for the coding agent
 
