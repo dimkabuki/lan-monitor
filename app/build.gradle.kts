@@ -3,9 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
 android {
     namespace = "com.dimkabuki.lanmonitor"
     compileSdk = 36
+
     defaultConfig {
         applicationId = "com.dimkabuki.lanmonitor"
         minSdk = 33
@@ -13,17 +15,21 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+
     buildFeatures { compose = true }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.06.01"))
     implementation("androidx.activity:activity-compose:1.13.0")
@@ -31,5 +37,16 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Native WebRTC for direct LAN-only audio/video transport.
+    implementation("io.github.webrtc-sdk:android:150.7871.01")
+
+    // Camera-hosted signaling server and Monitor WebSocket client.
+    implementation("io.ktor:ktor-server-core:3.6.0")
+    implementation("io.ktor:ktor-server-cio:3.6.0")
+    implementation("io.ktor:ktor-server-websockets:3.6.0")
+    implementation("io.ktor:ktor-client-cio:3.6.0")
+    implementation("io.ktor:ktor-client-websockets:3.6.0")
+
     testImplementation("junit:junit:4.13.2")
 }
