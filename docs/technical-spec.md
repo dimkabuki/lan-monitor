@@ -44,7 +44,7 @@ Preferred stack:
 - Coroutines and `Flow` where they simplify lifecycle-safe asynchronous state handling.
 - Gradle and GitHub Actions for automated builds, unit tests, and APK artifacts.
 
-### 3.1. M2 implementation status (2026-10-24)
+### Current implementation status (2026-10-24)
 
 The first M2 implementation is being reviewed in [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3). This is an implementation snapshot, not a replacement for the target requirements in this specification:
 
