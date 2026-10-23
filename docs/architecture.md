@@ -10,7 +10,7 @@ M2 currently adds an initial Camera/Monitor implementation:
 - **Monitor:** manually enters the Camera's private IPv4 address and the random in-memory pairing token shown by Camera.
 - **Signaling:** offer/answer SDP and ICE candidates are exchanged over one authenticated WebSocket connection. The Camera accepts only one Monitor in M2. Invalid tokens and non-private IPv4 peers are rejected.
 - **Media:** native WebRTC carries audio/video directly between peers. No STUN/TURN servers are configured. Capture profile is currently 640×480 at 15 fps.
-- **Health:** Monitor reports whether decoded video frames have advanced recently; Camera does not report streaming health based only on ICE connected state. The initial stall threshold is three seconds.
+- **Health:** Monitor reports whether decoded video frames have advanced recently; Camera does not report streaming health based only on ICE connected state. A pure `VideoFrameHealth` policy evaluates the three-second stall boundary and is covered by deterministic JVM unit tests.
 - **Lifecycle/scope limits:** the Camera UI must stay open in this M2 baseline. Background/screen-off operation, QR pairing, mDNS/DNS-SD rediscovery, address-change recovery, two Monitors, adaptive quality, and movement detection remain future work.
 - **Physical validation:** CI can compile and test pure Kotlin logic but cannot prove live media or device-specific behavior. M2 must be exercised on two physical Android devices before its end-to-end media acceptance is declared passed.
 
