@@ -143,7 +143,7 @@ class LanWebRtcSession(
     }
 
     fun showMessage(message: String) {
-        setStatus(message)
+        updateStatus(message)
     }
 
     fun startCamera() {
@@ -185,11 +185,11 @@ class LanWebRtcSession(
     fun connectToCamera(host: String, token: String) {
         if (role != AppRole.MONITOR || isBusy || sessionActive || disposed) return
         if (!LocalLanAddress.isPrivateIpv4(host)) {
-            setStatus("Enter the Camera's private IPv4 address, for example 192.168.1.20.")
+            updateStatus("Enter the Camera's private IPv4 address, for example 192.168.1.20.")
             return
         }
         if (token.isBlank()) {
-            setStatus("Enter the pairing token shown on the Camera device.")
+            updateStatus("Enter the pairing token shown on the Camera device.")
             return
         }
 
@@ -258,11 +258,7 @@ class LanWebRtcSession(
     }
 
     fun stopSession() {
-        if (isBusy && !sessionActive) {
-            shutdownRequested = true
-        } else {
-            shutdownRequested = true
-        }
+        shutdownRequested = true
         updateUi {
             isBusy = true
             status = "Stopping session…"
@@ -382,7 +378,7 @@ class LanWebRtcSession(
                                 }
                                 authenticated = true
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
-                                setStatus("Monitor paired; negotiating WebRTC.")
+                                updateStatus("Monitor paired; negotiating WebRTC.")
                                 scope.launch { createCameraOffer() }
                             } else {
                                 handleSignalMessage(message)
@@ -392,7 +388,7 @@ class LanWebRtcSession(
                         throw cancelled
                     } catch (error: Throwable) {
                         if (!shutdownRequested && !disposed) {
-                            setStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
+                            updateStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
                         }
                     } finally {
                         cameraSender = null
@@ -402,7 +398,7 @@ class LanWebRtcSession(
                         if (authenticated && !shutdownRequested && !disposed) {
                             scope.launch {
                                 closePeerConnection()
-                                setStatus("Monitor disconnected. Waiting for Monitor.")
+                                updateStatus("Monitor disconnected. Waiting for Monitor.")
                             }
                         }
                     }
@@ -421,17 +417,17 @@ class LanWebRtcSession(
                         connection.setLocalDescription(
                             createSdpObserver(
                                 onSetSuccess = { publishLocalDescription("offer", description) },
-                                onFailure = { setStatus("Could not set local offer: $it") },
+                                onFailure = { updateStatus("Could not set local offer: $it") },
                             ),
                             description,
                         )
                     },
-                    onFailure = { setStatus("Could not create offer: $it") },
+                    onFailure = { updateStatus("Could not create offer: $it") },
                 ),
                 MediaConstraints(),
             )
         } catch (error: Throwable) {
-            setStatus("Could not start WebRTC offer: ${error.message ?: error.javaClass.simpleName}")
+            updateStatus("Could not start WebRTC offer: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -458,17 +454,17 @@ class LanWebRtcSession(
                 PeerConnection.IceConnectionState.CONNECTED,
                 PeerConnection.IceConnectionState.COMPLETED -> {
                     if (role == AppRole.CAMERA) {
-                        setStatus("Transport connected; waiting for Monitor media confirmation.")
+                        updateStatus("Transport connected; waiting for Monitor media confirmation.")
                     } else {
-                        setStatus("Transport connected; waiting for decoded video frames.")
+                        updateStatus("Transport connected; waiting for decoded video frames.")
                     }
                 }
                 PeerConnection.IceConnectionState.DISCONNECTED ->
-                    setStatus("Transport disconnected; attempting to recover.")
+                    updateStatus("Transport disconnected; attempting to recover.")
                 PeerConnection.IceConnectionState.FAILED ->
-                    setStatus("WebRTC connection failed. Stop and reconnect.")
+                    updateStatus("WebRTC connection failed. Stop and reconnect.")
                 PeerConnection.IceConnectionState.CLOSED -> Unit
-                else -> setStatus("Establishing direct LAN media connection…")
+                else -> updateStatus("Establishing direct LAN media connection…")
             }
         }
 
@@ -517,25 +513,25 @@ class LanWebRtcSession(
             track.addSink(remoteVideoHealthSink)
             remoteRenderer?.let(track::addSink)
         }
-        setStatus("Video track received; waiting for decoded frames.")
+        updateStatus("Video track received; waiting for decoded frames.")
     }
 
     private fun handleSignalMessage(message: JSONObject) {
         when (message.optString("type")) {
-            "ready" -> setStatus("Pairing accepted; waiting for media negotiation.")
+            "ready" -> updateStatus("Pairing accepted; waiting for media negotiation.")
             "offer" -> handleRemoteOffer(message.optString("sdp"))
             "answer" -> handleRemoteAnswer(message.optString("sdp"))
             "candidate" -> handleRemoteCandidate(message)
             "health" -> {
                 if (role == AppRole.CAMERA) {
                     if (message.optBoolean("videoHealthy", false)) {
-                        setStatus("Streaming: Monitor confirms decoded video frames.")
+                        updateStatus("Streaming: Monitor confirms decoded video frames.")
                     } else {
-                        setStatus("Media not yet confirmed: Monitor reports no recent decoded video frames.")
+                        updateStatus("Media not yet confirmed: Monitor reports no recent decoded video frames.")
                     }
                 }
             }
-            "error" -> setStatus("Signaling error: ${message.optString("message", "Unknown error")}")
+            "error" -> updateStatus("Signaling error: ${message.optString("message", "Unknown error")}")
         }
     }
 
@@ -554,23 +550,23 @@ class LanWebRtcSession(
                                     connection.setLocalDescription(
                                         createSdpObserver(
                                             onSetSuccess = { publishLocalDescription("answer", answer) },
-                                            onFailure = { setStatus("Could not set local answer: $it") },
+                                            onFailure = { updateStatus("Could not set local answer: $it") },
                                         ),
                                         answer,
                                     )
                                 },
-                                onFailure = { setStatus("Could not create answer: $it") },
+                                onFailure = { updateStatus("Could not create answer: $it") },
                             ),
                             MediaConstraints(),
                         )
                     },
-                    onFailure = { setStatus("Could not accept Camera offer: $it") },
+                    onFailure = { updateStatus("Could not accept Camera offer: $it") },
                 ),
                 offer,
             )
-            setStatus("Offer received; preparing answer.")
+            updateStatus("Offer received; preparing answer.")
         } catch (error: Throwable) {
-            setStatus("Could not handle offer: ${error.message ?: error.javaClass.simpleName}")
+            updateStatus("Could not handle offer: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -581,9 +577,9 @@ class LanWebRtcSession(
             createSdpObserver(
                 onSetSuccess = {
                     markRemoteDescriptionSet()
-                    setStatus("Answer accepted; confirming media progress.")
+                    updateStatus("Answer accepted; confirming media progress.")
                 },
-                onFailure = { setStatus("Could not accept Monitor answer: $it") },
+                onFailure = { updateStatus("Could not accept Monitor answer: $it") },
             ),
             SessionDescription(SessionDescription.Type.ANSWER, sdp),
         )
@@ -654,11 +650,11 @@ class LanWebRtcSession(
                         .put("lastFrameAgeMs", if (frameAge == Long.MAX_VALUE) -1 else frameAge),
                 )
                 if (healthy) {
-                    setStatus("Streaming: decoded video frames are advancing.")
+                    updateStatus("Streaming: decoded video frames are advancing.")
                 } else if (lastFrameAt != 0L) {
-                    setStatus("Stream interrupted: no decoded video frames for ${frameAge} ms.")
+                    updateStatus("Stream interrupted: no decoded video frames for ${frameAge} ms.")
                 } else if (peerConnection != null) {
-                    setStatus("Connected; waiting for the first decoded video frame.")
+                    updateStatus("Connected; waiting for the first decoded video frame.")
                 }
             }
         }
@@ -737,7 +733,7 @@ class LanWebRtcSession(
         }
     }
 
-    private fun setStatus(value: String) = updateUi { status = value }
+    private fun updateStatus(value: String) = updateUi { status = value }
 
     private fun updateUi(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
