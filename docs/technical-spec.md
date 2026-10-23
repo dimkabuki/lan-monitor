@@ -205,7 +205,7 @@ Use GitHub Actions as the source of truth for automated build and unit-test resu
 
 1. **Pull-request CI** — triggers for pull requests targeting `main`. The required job/check context is `build-and-test` in the `Android CI` workflow. It runs `:app:compileDebugKotlin` and `:app:testDebugUnitTest`, then uploads test reports for 14 days. It does not assemble or publish a downloadable APK artifact.
 2. **On-demand debug APK** — the manual `workflow_dispatch` input `build_apk` defaults to false. When explicitly enabled, the workflow runs its compile/tests job first and then a separate `build-apk` job that runs `:app:assembleDebug` and uploads `lan-monitor-debug-apk` for 14 days. This is a debug APK, not a production-signed release.
-3. **Development pre-release** — a push to `main` triggers `.github/workflows/android-release.yml`. It runs `:app:assembleDebug` and `:app:testDebugUnitTest`, then creates a GitHub pre-release tagged `snapshot-<short-sha>` and attaches the debug APK. The first run succeeded for merge commit `d166a2fc6262cef24da3708ae83c333ed07e6ce6`, publishing [`snapshot-d166a2f`](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d166a2f). The attached asset from that first run is named `app-debug.apk`; subsequent workflow changes may standardize the filename.
+3. **Development pre-release** — a push to `main` triggers `.github/workflows/android-release.yml`. It runs `:app:assembleDebug` and `:app:testDebugUnitTest`, then creates a GitHub pre-release tagged `snapshot-<short-sha>` and attaches the debug APK. The first run succeeded for merge commit `d166a2fc6262cef24da3708ae83c333ed07e6ce6`, publishing [`snapshot-d166a2f`](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d166a2f). The asset from that first run is named `app-debug.apk`. The workflow now copies the APK to the stable filename `lan-monitor-debug.apk` before attaching it to future releases; the existing release asset is not renamed retroactively.
 
 The CI workflow uses concurrency cancellation for runs in the same workflow/ref group, so a newer PR commit supersedes an older in-progress run. Use least-privilege workflow permissions and never expose signing secrets to PR workflows.
 
@@ -322,7 +322,7 @@ Maintain at least:
 - pull request template and GitHub Actions workflow;
 - tests for pure business logic and synthetic video frames.
 
-Upload test reports from pull-request CI for 14 days. The optional manual APK job uploads the artifact `lan-monitor-debug-apk` for 14 days. The post-merge GitHub pre-release currently attaches the file `app-debug.apk`; the release workflow and docs should stay consistent about the actual asset name. Do not describe an artifact as available unless the workflow actually produced it.
+Upload test reports from pull-request CI for 14 days. The optional manual APK job uploads the artifact `lan-monitor-debug-apk` for 14 days. The first published release contains `app-debug.apk`; the updated release workflow attaches `lan-monitor-debug.apk` for subsequent releases. Existing published assets are not renamed retroactively. Do not describe an artifact as available unless the workflow actually produced it.
 
 A release APK may be signed later, once the owner provides/configures a stable signing keystore safely. Never commit a keystore, passwords, pairing token, or GitHub secret. Use protected GitHub Secrets for release signing. Do not publish to any app store.
 
