@@ -76,7 +76,7 @@ private fun RoleSelectionScreen(onRoleSelected: (AppRole) -> Unit) {
             Text("Monitor")
         }
         Text(
-            "M2 baseline: manual local-IP pairing, direct WebRTC audio/video, and explicit media status.",
+            "M3 pairing: scan a Camera QR code or enter a private LAN address and temporary token manually.",
             style = MaterialTheme.typography.bodyMedium,
         )
     }
