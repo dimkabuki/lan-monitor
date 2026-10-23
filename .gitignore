@@ -1,0 +1,14 @@
+# Gradle
+.gradle/
+build/
+**/build/
+.idea/
+*.iml
+local.properties
+.externalNativeBuild/
+.cxx/
+*.jks
+*.keystore
+*.p12
+.env
+.env.*
