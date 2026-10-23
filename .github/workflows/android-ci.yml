@@ -30,14 +30,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
+      - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: "12266719"
-          packages: |
-            platform-tools
-            platforms;android-36
           accept-android-sdk-licenses: true
+      - name: Install required Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK and run unit tests
