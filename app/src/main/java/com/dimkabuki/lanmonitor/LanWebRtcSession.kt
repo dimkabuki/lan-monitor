@@ -5,6 +5,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
@@ -14,10 +16,10 @@ import io.ktor.server.cio.CIO as ServerCIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.routing.routing
-import io.ktor.server.request.origin
 import io.ktor.server.websocket.WebSockets as ServerWebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
+import io.ktor.websocket.close
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
@@ -340,7 +342,7 @@ class LanWebRtcSession(
             routing {
                 webSocket("/signal") {
                     // The listener binds all interfaces, but accepts only RFC 1918/link-local IPv4 peers.
-                    if (!LocalLanAddress.isPrivateIpv4(call.request.origin.remoteHost)) {
+                    if (!LocalLanAddress.isPrivateIpv4(call.request.local.remoteHost)) {
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
                         return@webSocket
                     }
