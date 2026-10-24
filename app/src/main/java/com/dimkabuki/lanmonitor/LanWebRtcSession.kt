@@ -640,16 +640,14 @@ class LanWebRtcSession(
             captureStartAttempted = true
             capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
 
-            val videoTrack = factory.createVideoTrack("lan-monitor-video", source).apply {
-                setEnabled(true)
-            }
+            val videoTrack = factory.createVideoTrack("lan-monitor-video", source)
             createdVideoTrack = videoTrack
+            videoTrack.setEnabled(true)
             val audioSource = factory.createAudioSource(MediaConstraints())
             createdAudioSource = audioSource
-            val audioTrack = factory.createAudioTrack("lan-monitor-audio", audioSource).apply {
-                setEnabled(true)
-            }
+            val audioTrack = factory.createAudioTrack("lan-monitor-audio", audioSource)
             createdAudioTrack = audioTrack
+            audioTrack.setEnabled(true)
 
             localRenderer?.let(videoTrack::addSink)
 
