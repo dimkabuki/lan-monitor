@@ -160,7 +160,7 @@ class LanWebRtcSession(
             frame.buffer.toI420()
         } catch (_: RuntimeException) {
             return
-        }
+        } ?: return
 
         try {
             val samples = MovementFrameSampler.sampleLuma(i420)
