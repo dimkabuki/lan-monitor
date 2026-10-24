@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
  */
 internal class LocalCameraNsd(context: Context) {
     private val appContext = context.applicationContext
-    private val manager = appContext.getSystemService(Context.NSD_SERVICE) as NsdManager
+    private val manager = appContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
     private val callbackExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -38,6 +38,10 @@ internal class LocalCameraNsd(context: Context) {
         onStatus: (String) -> Unit,
     ) {
         if (closed) return
+        val nsdManager = manager ?: run {
+            report(onStatus, "Android local network discovery is unavailable. Use QR/manual pairing.")
+            return
+        }
         stopAdvertising()
 
         val service = NsdServiceInfo().apply {
@@ -66,7 +70,7 @@ internal class LocalCameraNsd(context: Context) {
         }
         registrationListener = listener
         runCatching {
-            manager.registerService(
+            nsdManager.registerService(
                 service,
                 NsdManager.PROTOCOL_DNS_SD,
                 callbackExecutor,
@@ -85,6 +89,10 @@ internal class LocalCameraNsd(context: Context) {
         onStatus: (String) -> Unit,
     ) {
         if (closed) return
+        val nsdManager = manager ?: run {
+            report(onStatus, "Android local network discovery is unavailable. Use the QR address or manual fallback.")
+            return
+        }
         stopDiscovery()
         val generation = synchronized(this) {
             discoveryGeneration += 1
@@ -100,7 +108,7 @@ internal class LocalCameraNsd(context: Context) {
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 reportForGeneration(generation, onStatus, "Local discovery could not start (error $errorCode). Use the QR address or manual fallback.")
-                runCatching { manager.stopServiceDiscovery(this) }
+                runCatching { nsdManager.stopServiceDiscovery(this) }
                 releaseMulticastLock()
             }
 
@@ -114,7 +122,7 @@ internal class LocalCameraNsd(context: Context) {
                 if (!shouldResolve) return
 
                 runCatching {
-                    manager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                    nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                             synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
                             reportForGeneration(generation, onStatus, "A local Camera advertisement could not be resolved (error $errorCode).")
@@ -170,7 +178,7 @@ internal class LocalCameraNsd(context: Context) {
         }
         discoveryListener = listener
         runCatching {
-            manager.discoverServices(
+            nsdManager.discoverServices(
                 SERVICE_TYPE,
                 NsdManager.PROTOCOL_DNS_SD,
                 callbackExecutor,
@@ -186,7 +194,7 @@ internal class LocalCameraNsd(context: Context) {
     fun stopAdvertising() {
         val listener = registrationListener ?: return
         registrationListener = null
-        runCatching { manager.unregisterService(listener) }
+        runCatching { manager?.unregisterService(listener) }
     }
 
     fun stopDiscovery() {
@@ -195,7 +203,7 @@ internal class LocalCameraNsd(context: Context) {
         discoveryListener = null
         synchronized(resolvingNames) { resolvingNames.clear() }
         if (listener != null) {
-            runCatching { manager.stopServiceDiscovery(listener) }
+            runCatching { manager?.stopServiceDiscovery(listener) }
         }
         releaseMulticastLock()
     }
