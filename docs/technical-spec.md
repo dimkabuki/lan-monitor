@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.14  
+**Version:** 1.15  
 **Date:** 2026-10-24  
-**Status:** M0–M5 implementation slices through PR #12 are merged. PR #12 adds foreground-only Monitor screen-on behavior and a remote-audio mute control; PR CI and post-merge CI passed. Physical integration, audio, screen lifecycle, and movement acceptance remain to be verified before M6.  
+**Status:** M0–M5 implementation slices through PR #12 are merged. PR #12 adds foreground-only Monitor screen-on behavior and a remote-audio mute control; PR CI and post-merge CI passed. The UI refinement branch adds a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -29,6 +29,14 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
 - Both devices must support both roles. Test both assignments: S20 FE as Camera/S25 as Monitor, and S25 as Camera/S20 FE as Monitor.
 - Minimum OS for this project is Android 13 / API 33, unless a concrete dependency limitation is documented. Choose currently supported stable Kotlin, Android Gradle Plugin, Gradle, Jetpack Compose and WebRTC versions; pin versions and document them.
 - Verify current Android SDK and target-SDK requirements before selecting `targetSdk`. If targeting API 37 or later, implement the Android 17+ `ACCESS_LOCAL_NETWORK` permission flow where applicable, and guard version-specific behavior at runtime. Do not call APIs or request permissions that do not exist on an older OS version.
+
+### 2.1. Appearance and launcher identity
+
+- The app uses a custom dark Material 3 color scheme by default, independently of the Android system theme.
+- A user-controlled Dark theme switch is available on role selection and while either Camera or Monitor is active. The choice is persisted locally and applies immediately without ending the active session.
+- A light theme is supported as an explicit user choice. System-theme synchronization is intentionally out of scope for now.
+- Android status/navigation bar icon contrast follows the selected app theme.
+- The launcher uses an adaptive vector icon depicting overlapping screens with colorful wireless/mirroring accents.
 
 ## 3. Architecture and technology
 

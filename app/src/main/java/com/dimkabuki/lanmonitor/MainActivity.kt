@@ -1,6 +1,8 @@
 package com.dimkabuki.lanmonitor
 
 import android.Manifest
+import android.graphics.Color as AndroidColor
+import android.view.View
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
@@ -23,6 +25,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Switch
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -30,14 +35,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -46,11 +56,76 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.webrtc.SurfaceViewRenderer
 
+private const val APP_PREFERENCES_NAME = "lan_monitor_preferences"
+private const val DARK_THEME_KEY = "dark_theme_enabled"
+
+private val LanMonitorDarkColors = darkColorScheme(
+    primary = Color(0xFF9AB0FF),
+    onPrimary = Color(0xFF10234A),
+    secondary = Color(0xFF65D8CE),
+    onSecondary = Color(0xFF003731),
+    background = Color(0xFF0B0F14),
+    onBackground = Color(0xFFE8EDF4),
+    surface = Color(0xFF111820),
+    onSurface = Color(0xFFE8EDF4),
+    surfaceVariant = Color(0xFF202A35),
+    onSurfaceVariant = Color(0xFFBDC7D5),
+    outline = Color(0xFF778497),
+)
+
+private val LanMonitorLightColors = lightColorScheme(
+    primary = Color(0xFF4058B8),
+    onPrimary = Color(0xFFFFFFFF),
+    secondary = Color(0xFF087F8C),
+    onSecondary = Color(0xFFFFFFFF),
+    background = Color(0xFFF6F8FC),
+    onBackground = Color(0xFF172033),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF172033),
+    surfaceVariant = Color(0xFFE8EDF5),
+    onSurfaceVariant = Color(0xFF455268),
+    outline = Color(0xFF727E90),
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            val preferences = remember {
+                getSharedPreferences(APP_PREFERENCES_NAME, MODE_PRIVATE)
+            }
+            var darkThemeEnabled by rememberSaveable {
+                mutableStateOf(preferences.getBoolean(DARK_THEME_KEY, true))
+            }
+            val onDarkThemeChanged: (Boolean) -> Unit = { enabled ->
+                darkThemeEnabled = enabled
+                preferences.edit().putBoolean(DARK_THEME_KEY, enabled).apply()
+            }
+
+            SideEffect {
+                val lightSystemBarFlags =
+                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                val existingFlags = window.decorView.systemUiVisibility
+                window.decorView.systemUiVisibility = if (darkThemeEnabled) {
+                    existingFlags and lightSystemBarFlags.inv()
+                } else {
+                    existingFlags or lightSystemBarFlags
+                }
+                window.statusBarColor = if (darkThemeEnabled) {
+                    AndroidColor.rgb(11, 15, 20)
+                } else {
+                    AndroidColor.rgb(246, 248, 252)
+                }
+                window.navigationBarColor = if (darkThemeEnabled) {
+                    AndroidColor.rgb(11, 15, 20)
+                } else {
+                    AndroidColor.rgb(246, 248, 252)
+                }
+            }
+
+            MaterialTheme(
+                colorScheme = if (darkThemeEnabled) LanMonitorDarkColors else LanMonitorLightColors,
+            ) {
                 var selectedRole by rememberSaveable { mutableStateOf<AppRole?>(null) }
                 BackHandler(enabled = selectedRole != null) {
                     selectedRole?.let { SessionControllerStore.stopIfActive(it) }
@@ -58,15 +133,27 @@ class MainActivity : ComponentActivity() {
                 }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (selectedRole) {
-                        null -> RoleSelectionScreen(onRoleSelected = { selectedRole = it })
-                        AppRole.CAMERA -> CameraScreen(onBack = {
-                            SessionControllerStore.stopIfActive(AppRole.CAMERA)
-                            selectedRole = null
-                        })
-                        AppRole.MONITOR -> MonitorScreen(onBack = {
-                            SessionControllerStore.stopIfActive(AppRole.MONITOR)
-                            selectedRole = null
-                        })
+                        null -> RoleSelectionScreen(
+                            onRoleSelected = { selectedRole = it },
+                            darkThemeEnabled = darkThemeEnabled,
+                            onDarkThemeChanged = onDarkThemeChanged,
+                        )
+                        AppRole.CAMERA -> CameraScreen(
+                            onBack = {
+                                SessionControllerStore.stopIfActive(AppRole.CAMERA)
+                                selectedRole = null
+                            },
+                            darkThemeEnabled = darkThemeEnabled,
+                            onDarkThemeChanged = onDarkThemeChanged,
+                        )
+                        AppRole.MONITOR -> MonitorScreen(
+                            onBack = {
+                                SessionControllerStore.stopIfActive(AppRole.MONITOR)
+                                selectedRole = null
+                            },
+                            darkThemeEnabled = darkThemeEnabled,
+                            onDarkThemeChanged = onDarkThemeChanged,
+                        )
                     }
                 }
             }
@@ -75,12 +162,50 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun RoleSelectionScreen(onRoleSelected: (AppRole) -> Unit) {
+private fun ThemeSwitch(
+    darkThemeEnabled: Boolean,
+    onDarkThemeChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Dark theme", style = MaterialTheme.typography.labelMedium)
+        Switch(
+            checked = darkThemeEnabled,
+            onCheckedChange = onDarkThemeChanged,
+            modifier = Modifier.semantics { contentDescription = "Dark theme" },
+        )
+    }
+}
+
+@Composable
+private fun RoleSelectionScreen(
+    onRoleSelected: (AppRole) -> Unit,
+    darkThemeEnabled: Boolean,
+    onDarkThemeChanged: (Boolean) -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Lan Monitor", style = MaterialTheme.typography.headlineLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Lan Monitor",
+                style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier.weight(1f),
+            )
+            ThemeSwitch(
+                darkThemeEnabled = darkThemeEnabled,
+                onDarkThemeChanged = onDarkThemeChanged,
+            )
+        }
         Text("Choose a role. Both devices must be connected to the same Wi-Fi network.")
         Button(onClick = { onRoleSelected(AppRole.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
             Text("Camera")
@@ -96,7 +221,11 @@ private fun RoleSelectionScreen(onRoleSelected: (AppRole) -> Unit) {
 }
 
 @Composable
-private fun CameraScreen(onBack: () -> Unit) {
+private fun CameraScreen(
+    onBack: () -> Unit,
+    darkThemeEnabled: Boolean,
+    onDarkThemeChanged: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val session = remember { SessionControllerStore.attachUi(context, AppRole.CAMERA) }
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
@@ -130,9 +259,18 @@ private fun CameraScreen(onBack: () -> Unit) {
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Button(onClick = onBack) { Text("Back") }
-            Text("Camera", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Camera",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f),
+            )
+            ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
         Text("Camera preview", style = MaterialTheme.typography.titleMedium)
         AndroidView(
@@ -216,7 +354,11 @@ private fun CameraScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun MonitorScreen(onBack: () -> Unit) {
+private fun MonitorScreen(
+    onBack: () -> Unit,
+    darkThemeEnabled: Boolean,
+    onDarkThemeChanged: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val activity = context as? Activity
     val session = remember { SessionControllerStore.attachUi(context, AppRole.MONITOR) }
@@ -294,9 +436,18 @@ private fun MonitorScreen(onBack: () -> Unit) {
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Button(onClick = onBack) { Text("Back") }
-            Text("Monitor", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Monitor",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f),
+            )
+            ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
         AndroidView(
             factory = { viewContext ->
