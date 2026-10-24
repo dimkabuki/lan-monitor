@@ -2,7 +2,7 @@
 
 **Version:** 1.14  
 **Date:** 2026-10-24  
-**Status:** M0–M5 implementation slices through PR #11 are merged. [PR #12](https://github.com/dimkabuki/lan-monitor/pull/12) adds foreground-only Monitor screen-on behavior and a remote-audio mute control; final PR CI and physical integration, audio, screen lifecycle, and movement acceptance remain to be verified.  
+**Status:** M0–M5 implementation slices through PR #12 are merged. PR #12 adds foreground-only Monitor screen-on behavior and a remote-audio mute control; PR CI and post-merge CI passed. Physical integration, audio, screen lifecycle, and movement acceptance remain to be verified before M6.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
