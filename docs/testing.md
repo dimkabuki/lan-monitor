@@ -4,7 +4,7 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, and versioned QR-payload validation. CI does not prove QR camera operation, WebRTC media, microphone playback, Wi-Fi reachability or Android lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, and the policy that accepts a discovery address only when the advertised Camera identity matches the QR identity and the resolved IPv4 address is private. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
 
 ## Physical-device test timing
 
@@ -31,6 +31,11 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 
 - [ ] Camera starts from an explicit user tap and shows its pairing QR and temporary token.
 - [ ] Monitor scans the Camera QR, parses it, and loads a private LAN address plus token.
+- [ ] Camera advertises its stable identity with DNS-SD/mDNS while the Camera session is active.
+- [ ] After QR scan, Monitor automatically searches for the exact paired Camera identity and updates the address when a matching private IPv4 endpoint resolves.
+- [ ] The discovery advertisement does not contain the pairing token.
+- [ ] A Camera IP/address change is observed by discovery. Confirm actual media reconnects within the target in the consolidated MVP phase; discovery alone does not constitute reconnect support.
+- [ ] If discovery is blocked or fails, the QR address and manual IP/token fields remain usable.
 - [ ] A malformed/unsupported QR is rejected without crashing.
 - [ ] Manual IP/token entry remains available as a fallback.
 - [ ] Wrong pairing token is rejected; public or malformed IPv4 addresses are refused.
