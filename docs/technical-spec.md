@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.15  
+**Version:** 1.16  
 **Date:** 2026-10-24  
-**Status:** M0–M5 implementation slices through PR #12 are merged. PR #12 adds foreground-only Monitor screen-on behavior and a remote-audio mute control; PR CI and post-merge CI passed. The UI refinement branch adds a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
+**Status:** M0–M5 implementation slices through PR #12 and UI refinement PR #14 are merged. The app has a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Opt-in, privacy-filtered diagnostic logging is being added to help investigate physical-device connection failures. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -28,6 +28,14 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
   - Samsung Galaxy S25, Android 16 / One UI 8.5.
 - Both devices must support both roles. Test both assignments: S20 FE as Camera/S25 as Monitor, and S25 as Camera/S20 FE as Monitor.
 - Minimum OS for this project is Android 13 / API 33, unless a concrete dependency limitation is documented. Choose currently supported stable Kotlin, Android Gradle Plugin, Gradle, Jetpack Compose and WebRTC versions; pin versions and document them.
+### 2.2. Diagnostic logging
+
+- App-level diagnostic logging is disabled on a cold app launch and is enabled only by an explicit switch on the Camera or Monitor screen.
+- While enabled, write timestamped events to a role-specific text file under `Download/Lan Monitor/` using Android's Downloads media collection. No broad storage permission is required on the minimum supported Android version.
+- Log pairing workflow milestones without recording QR payloads or temporary tokens; record local discovery results/errors, WebSocket attempt/error/retry timing, WebRTC signaling/ICE state transitions, remote track events and decoded-video progress transitions.
+- Never log audio/video contents, SDP descriptions, full ICE candidate payloads, or pairing secrets. Sanitize diagnostic details, flatten multi-line values, and cap each file at 2 MiB.
+- Each event write opens, appends and closes the file so diagnostics remain readable after a process crash. Toggling logging off writes a final event and shows the file location. Files remain in Downloads until the user deletes them.
+- These logs are short-session troubleshooting artifacts, not telemetry. They may contain local IP addresses and error details; users should review them before sharing. Automated CI cannot verify Samsung device connection behavior.
 - Verify current Android SDK and target-SDK requirements before selecting `targetSdk`. If targeting API 37 or later, implement the Android 17+ `ACCESS_LOCAL_NETWORK` permission flow where applicable, and guard version-specific behavior at runtime. Do not call APIs or request permissions that do not exist on an older OS version.
 
 ### 2.1. Appearance and launcher identity
