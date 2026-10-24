@@ -5,7 +5,7 @@
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
 - **Current `main` head:** `eefe1582bf89c9d15d815b0882de677e1aa00eeb`, merged [PR #10](https://github.com/dimkabuki/lan-monitor/pull/10).
 - **Main CI:** post-merge Android Development Release [run #40053715085](https://github.com/dimkabuki/lan-monitor/actions/runs/40053715085) passed, including compilation, unit tests and debug APK publication.
-- **Current implementation branch:** `feat/m5-movement-alerts`. This PR slice adds local decoded-frame movement analysis, Android movement notifications, visible Monitor movement status, deterministic JVM tests, and updated spec/architecture/testing docs. PR number and final-head CI are recorded after PR creation.
+- **Active PR:** [PR #11 — Monitor movement detection and alerts](https://github.com/dimkabuki/lan-monitor/pull/11), branch `feat/m5-movement-alerts`, initial PR head `690f8c26e77f9d40df8d64cecef3ae65e20a50a5`. It adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation. Required CI on the final handoff-updated head must be checked before merge.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
   - `LocalCameraNsd` advertises `_lanmonitor._tcp.` with stable Camera UUID and protocol version in DNS-SD TXT data; no temporary pairing token is broadcast.
