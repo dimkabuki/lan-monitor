@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.9  
+**Version:** 1.10  
 **Date:** 2026-10-24  
-**Status:** M0/M1/M2, QR pairing and local DNS-SD/mDNS discovery are merged; initial signaling/WebRTC recovery is implemented in PR #7; consolidated physical-device acceptance remains pending.  
+**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery and initial signaling/WebRTC recovery are merged. Typed foreground-service scaffolding and lifecycle stop handling are proposed in PR #8; consolidated physical-device acceptance remains pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -52,7 +52,8 @@ The initial M2 implementation was merged through [PR #3](https://github.com/dimk
 - Monitor can scan a Camera QR code to import pairing details or enter the private IPv4 address and temporary in-memory token manually. The versioned QR URI contains a persistent local Camera UUID, current private IPv4 address hints, the fixed signaling port and the session token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
 - Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
 - The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
-- QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. After Monitor scans a QR, it resolves only a service name that hints at the paired UUID, validates the resolved TXT identity/version and requires a private IPv4 result before changing the host field. The pairing token is not broadcast in the discovery record. QR address hints and manual entry remain fallbacks. Active-session recovery retries signaling with bounded exponential backoff, uses the latest identity-validated endpoint, and rebuilds the WebRTC peer after ICE failure or sustained frame stall; the 15-second recovery target still requires physical validation. Two Monitors, background/screen-off operation, motion detection and adaptive quality remain future work.
+- QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. After Monitor scans a QR, it validates service identity/version and private IPv4 before updating the target; the token is never broadcast in discovery. Active-session recovery retries signaling with bounded exponential backoff and rebuilds WebRTC after ICE failure or a sustained frame stall; the 15-second recovery target still requires physical validation.
+- PR #8 introduces typed Camera/Monitor foreground services, an ongoing Stop notification, contextual notification-permission requests and stop-on-task-removal behavior. This is initial lifecycle scaffolding: the session controller remains Activity/Compose-owned, so survival across Activity/process recreation is not claimed and background/screen-off behavior remains subject to physical validation.
 - The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
 ### 3.1. Media and network boundaries
@@ -345,13 +346,13 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M0 — Repository governance: COMPLETE (2026-10-23).** Default branch `main`, active PR-only ruleset, required `build-and-test` status check, deletion/force-push protection, and squash-only merge settings are verified.
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
 - **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
-- **M3 — Pairing and discovery: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery. PR #7 adds initial active-session reconnection; physical recovery timing and lifecycle behavior remain unverified.
-- **M4 — Lifecycle:** permission handling, foreground services, background restrictions, stop behavior and cleanup.
+- **M3 — Pairing and discovery: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery. PR #7 adds initial active-session reconnection; physical recovery timing remains unverified.
+- **M4 — Lifecycle: IN PROGRESS.** PR #8 adds typed foreground-service scaffolding, notification permission handling and stop/task-removal cleanup; controller ownership, Activity/process recreation and physical background/screen-off acceptance remain pending.
 - **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), and initial active-session recovery (PR #7) are merged into `main` only after the owner merges each PR. The recovery slice retains the stable Camera identity and temporary token, retries signaling with bounded backoff, follows validated discovery updates and rebuilds WebRTC after transport failure or sustained frame stalls. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
+M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), and initial active-session recovery (PR #7) are merged into `main`. PR #8 proposes typed foreground-service scaffolding and user-visible stop controls for lifecycle work. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
 
 ## 13. Rules for the coding agent
 
