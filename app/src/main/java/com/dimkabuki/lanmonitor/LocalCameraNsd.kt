@@ -107,6 +107,9 @@ internal class LocalCameraNsd(context: Context) {
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (!matchesServiceType(serviceInfo.serviceType)) return
                 val serviceName = serviceInfo.serviceName ?: return
+                // Service names include the stable ID as a discovery hint; resolved TXT identity
+                // is still authoritative, and the temporary pairing secret is never advertised.
+                if (!serviceName.startsWith("lanmonitor-$expectedCameraId")) return
                 val shouldResolve = synchronized(resolvingNames) { resolvingNames.add(serviceName) }
                 if (!shouldResolve) return
 
