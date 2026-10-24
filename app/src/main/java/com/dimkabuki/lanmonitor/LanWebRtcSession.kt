@@ -92,6 +92,8 @@ class LanWebRtcSession(
         private set
     var discoveredCameraAddress by androidx.compose.runtime.mutableStateOf("")
         private set
+    var movementStatus by androidx.compose.runtime.mutableStateOf("Waiting for Monitor video.")
+        private set
 
     @Volatile private var disposed = false
     @Volatile private var shutdownRequested = false
@@ -108,6 +110,10 @@ class LanWebRtcSession(
     @Volatile private var cameraSender: ((String) -> Unit)? = null
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
+    @Volatile private var lastMovementAnalysisAtMs = 0L
+    @Volatile private var movementAnalysisReady = false
+    @Volatile private var lastMovementAnalysisError: String? = null
+    private val movementDetector = MovementDetector()
     @Volatile private var localDescriptionSignaled = false
     @Volatile private var remoteDescriptionSet = false
 
@@ -136,7 +142,66 @@ class LanWebRtcSession(
 
     private val remoteVideoHealthSink = object : VideoSink {
         override fun onFrame(frame: org.webrtc.VideoFrame) {
-            lastRemoteVideoFrameAtMs = SystemClock.elapsedRealtime()
+            val nowMs = SystemClock.elapsedRealtime()
+            lastRemoteVideoFrameAtMs = nowMs
+            inspectMovementFrame(frame, nowMs)
+        }
+    }
+
+    private fun inspectMovementFrame(frame: org.webrtc.VideoFrame, nowMs: Long) {
+        if (role != AppRole.MONITOR || disposed || shutdownRequested) return
+        if (
+            lastMovementAnalysisAtMs != 0L &&
+            nowMs - lastMovementAnalysisAtMs < MovementFrameSampler.ANALYSIS_INTERVAL_MS
+        ) return
+        lastMovementAnalysisAtMs = nowMs
+
+        val i420 = try {
+            frame.buffer.toI420()
+        } catch (_: RuntimeException) {
+            return
+        }
+
+        try {
+            val samples = MovementFrameSampler.sampleLuma(i420)
+            val result = movementDetector.process(samples, nowMs)
+            if (lastMovementAnalysisError != null) lastMovementAnalysisError = null
+            if (!movementAnalysisReady) {
+                movementAnalysisReady = true
+                updateUi { movementStatus = "Watching for movement." }
+            }
+            if (result.movementStarted) publishMovementEvent(result.notificationAllowed)
+        } catch (error: RuntimeException) {
+            val message = "Movement analysis unavailable: ${error.message ?: error.javaClass.simpleName}"
+            if (lastMovementAnalysisError != message) {
+                lastMovementAnalysisError = message
+                updateUi { movementStatus = message }
+            }
+        } finally {
+            runCatching { i420.release() }
+        }
+    }
+
+    private fun publishMovementEvent(notificationAllowed: Boolean) {
+        if (!notificationAllowed) {
+            updateUi { movementStatus = "Movement detected; alert cooldown is active." }
+            return
+        }
+
+        when (MovementAlertNotifier.post(appContext)) {
+            MovementNotificationOutcome.POSTED ->
+                updateUi { movementStatus = "Movement detected; notification posted." }
+            MovementNotificationOutcome.PERMISSION_DENIED ->
+                updateUi {
+                    movementStatus = "Movement detected, but notifications are not permitted. Allow Lan Monitor notifications in Android Settings."
+                }
+            MovementNotificationOutcome.APP_NOTIFICATIONS_DISABLED,
+            MovementNotificationOutcome.CHANNEL_DISABLED ->
+                updateUi {
+                    movementStatus = "Movement detected, but notifications are disabled. Enable them in Android Settings."
+                }
+            MovementNotificationOutcome.FAILED ->
+                updateUi { movementStatus = "Movement detected, but the notification could not be posted." }
         }
     }
 
@@ -290,6 +355,12 @@ class LanWebRtcSession(
 
         shutdownRequested = false
         controllerHasWork = true
+        movementDetector.reset()
+        lastMovementAnalysisAtMs = 0L
+        movementAnalysisReady = false
+        lastMovementAnalysisError = null
+        updateUi { movementStatus = "Waiting for Monitor video." }
+        runCatching { MovementAlertNotifier.ensureChannel(appContext) }
         monitorTargetHost = requestedHost
         monitorAuthenticationRejected = false
         monitorConnectionStartedAtMs = 0L
@@ -1069,6 +1140,12 @@ class LanWebRtcSession(
         remoteRenderer?.let { remoteVideoTrack?.removeSink(it) }
         remoteVideoTrack = null
         lastRemoteVideoFrameAtMs = 0L
+        lastMovementAnalysisAtMs = 0L
+        movementAnalysisReady = false
+        movementDetector.resetBaseline()
+        if (role == AppRole.MONITOR) {
+            updateUi { movementStatus = "Waiting for Monitor video." }
+        }
         runCatching { connection?.close() }
         runCatching { connection?.dispose() }
     }
@@ -1107,11 +1184,16 @@ class LanWebRtcSession(
         monitorTargetHost = null
         monitorConnectionStartedAtMs = 0L
         monitorAuthenticationRejected = false
+        lastMovementAnalysisAtMs = 0L
+        movementAnalysisReady = false
+        lastMovementAnalysisError = null
+        movementDetector.reset()
         serverConnectionClaimed.set(false)
         controllerHasWork = false
         updateUi {
             sessionActive = false
             isBusy = false
+            movementStatus = "Not active."
         }
     }
 

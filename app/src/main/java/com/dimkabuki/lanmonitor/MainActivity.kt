@@ -373,6 +373,7 @@ private fun MonitorScreen(onBack: () -> Unit) {
             }
         }
         Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+        Text("Movement alerts: ${session.movementStatus}", style = MaterialTheme.typography.bodyMedium)
         Text(
             "Scanning by Camera identity only updates the connection address. If local discovery is unavailable, use the address embedded in the QR or type an address manually.",
             style = MaterialTheme.typography.bodySmall,
