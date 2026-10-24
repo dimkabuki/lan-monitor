@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.7  
+**Version:** 1.8  
 **Date:** 2026-10-24  
-**Status:** M0/M1 governance and CI are complete; M2 and the token/health test hardening are merged; initial QR pairing is under review in PR #5; mDNS/DNS-SD discovery and reconnection are the next M3 slice; physical-device acceptance is scheduled for the MVP verification phase.  
+**Status:** M0/M1/M2 and QR pairing are merged; local DNS-SD/mDNS discovery using the stable Camera identity is implemented in PR #6; automatic media reconnection and consolidated physical-device acceptance remain pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -46,13 +46,13 @@ Preferred stack:
 
 ### Current implementation status (2026-10-24)
 
-The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. Initial QR-based pairing is implemented in [PR #5](https://github.com/dimkabuki/lan-monitor/pull/5); local discovery and automatic rediscovery are still to come. This implementation snapshot does not replace the target requirements in this specification:
+The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. Initial QR-based pairing was merged through [PR #5](https://github.com/dimkabuki/lan-monitor/pull/5). [PR #6](https://github.com/dimkabuki/lan-monitor/pull/6) adds initial DNS-SD/mDNS advertising and discovery based on the stable Camera identity; it updates the Monitor's current address but does not yet reconnect an active media session after changes. This implementation snapshot does not replace the target requirements in this specification:
 
 - Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
 - Monitor can scan a Camera QR code to import pairing details or enter the private IPv4 address and temporary in-memory token manually. The versioned QR URI contains a persistent local Camera UUID, current private IPv4 address hints, the fixed signaling port and the session token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
 - Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
 - The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
-- QR generation/scanning and strict versioned payload parsing are being implemented in M3. mDNS/DNS-SD discovery and reconnection after address/Wi-Fi changes are not yet implemented; the QR's IP addresses are initial connection hints. Two Monitors, background/screen-off operation, motion detection and adaptive quality remain future work.
+- QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. After Monitor scans a QR, it resolves only a service name that hints at the paired UUID, validates the resolved TXT identity/version and requires a private IPv4 result before changing the host field. The pairing token is not broadcast in the discovery record. QR address hints and manual entry remain fallbacks; active-session reconnection following IP/Wi-Fi changes is still future work. Two Monitors, background/screen-off operation, motion detection and adaptive quality remain future work.
 - The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
 ### 3.1. Media and network boundaries
@@ -345,13 +345,13 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M0 — Repository governance: COMPLETE (2026-10-23).** Default branch `main`, active PR-only ruleset, required `build-and-test` status check, deletion/force-push protection, and squash-only merge settings are verified.
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
 - **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
-- **M3 — Pairing and discovery: IN PROGRESS.** PR #5 adds versioned QR pairing and preserves manual fallback. Remaining scope includes local NSD/DNS-SD discovery and reconnection after DHCP/IP/Wi-Fi changes.
+- **M3 — Pairing and discovery: IN PROGRESS.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery and updates the address field; active-session reconnection after DHCP/IP/Wi-Fi changes remains outstanding.
 - **M4 — Lifecycle:** permission handling, foreground services, background restrictions, stop behavior and cleanup.
 - **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1 are complete. M2 implementation and policy tests are merged into `main`. The current branch, `feat/m3-qr-pairing`, adds versioned QR display/scanning and payload-validation tests. The remaining M3 work is local NSD/DNS-SD discovery and reconnect after address or Wi-Fi changes. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
+M0/M1/M2 and PR #5 QR pairing are merged into `main`. PR #6 on `feat/m3-local-discovery` adds DNS-SD/mDNS registration and matching-camera discovery based on the stable Camera UUID, keeps manual fallback, and tests the pure identity/address-selection policy. Next add active-session reconnect after IP changes or brief Wi-Fi outages, retaining truthful state and cleanup. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
 
 ## 13. Rules for the coding agent
 
