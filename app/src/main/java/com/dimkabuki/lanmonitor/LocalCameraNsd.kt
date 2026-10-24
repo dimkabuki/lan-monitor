@@ -48,8 +48,8 @@ internal class LocalCameraNsd(context: Context) {
             serviceName = "lanmonitor-$cameraId"
             serviceType = SERVICE_TYPE
             setPort(port)
-            setAttribute(ATTRIBUTE_CAMERA_ID, cameraId.toByteArray(StandardCharsets.UTF_8))
-            setAttribute(ATTRIBUTE_VERSION, PROTOCOL_VERSION.toByteArray(StandardCharsets.UTF_8))
+            setAttribute(ATTRIBUTE_CAMERA_ID, cameraId)
+            setAttribute(ATTRIBUTE_VERSION, PROTOCOL_VERSION)
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
