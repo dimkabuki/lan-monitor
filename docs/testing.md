@@ -31,6 +31,15 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Monitor QR scanner requests camera permission when needed; denial is handled with a clear message and manual-entry fallback remains usable.
 - [ ] Permission revocation or a missing camera/microphone leads to a truthful error, not a false Connected/Streaming state.
 
+### Appearance and launcher icon
+
+- [ ] A fresh install opens in dark theme regardless of the Android system theme.
+- [ ] The Dark theme switch is visible on role selection and remains available while Camera or Monitor is active.
+- [ ] Switching themes updates the app immediately and does not stop an active session.
+- [ ] The chosen theme is retained after closing and reopening the app.
+- [ ] Light-theme text, buttons, fields and system-bar icons remain legible when light theme is selected.
+- [ ] The launcher displays the new colorful screen-mirroring icon.
+
 ### 2. Pairing and connection
 
 - [ ] Camera starts from an explicit user tap and shows its pairing QR and temporary token.

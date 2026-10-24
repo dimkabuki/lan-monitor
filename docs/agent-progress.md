@@ -3,8 +3,8 @@
 ## Current status — 2026-10-24
 
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
-- **Current `main` head:** `ae2bfcb1bf4360838ee4361e46fa95e8c0aebcc1`, merged [PR #12](https://github.com/dimkabuki/lan-monitor/pull/12).
-- **Post-merge CI:** Android Development Release [run #40081832075](https://github.com/dimkabuki/lan-monitor/actions/runs/40081832075) succeeded on `ae2bfcb1`, including compile/unit tests and development APK publication.
+- **Current `main` head:** `a20046fb31ee785f262d7c20bf18aa5e16f1aae5`, merged [PR #13](https://github.com/dimkabuki/lan-monitor/pull/13).
+- **Post-merge CI:** Android Development Release [run #40083567962](https://github.com/dimkabuki/lan-monitor/actions/runs/40083567962) succeeded on `a20046fb`, including compile/unit tests and development APK publication.
 - **Merged M5 movement PR:** [PR #11](https://github.com/dimkabuki/lan-monitor/pull/11) adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
@@ -24,4 +24,5 @@
 - **Repository policy:** feature branches and PRs only; never commit directly to `main`, force-push, or merge PRs automatically. Required CI context is `build-and-test`; squash-only merge is configured; automatic deletion of merged branches is enabled.
 - **Build baseline:** JDK 17; Gradle Wrapper 8.14.6; Android Gradle Plugin 8.13.2; Kotlin Gradle plugin 2.4.21; compile/target SDK 36; min SDK 33; WebRTC `150.7871.01`; Ktor `3.6.0`; ZXing Android Embedded `4.3.0`.
 - **Merged PR #12 — Monitor foreground controls:** [PR #12](https://github.com/dimkabuki/lan-monitor/pull/12) adds foreground-only `FLAG_KEEP_SCREEN_ON`, remote-audio mute/unmute retained across peer reconnection, focused mute-state unit tests, and updated acceptance/spec docs. Required CI and post-merge development-release workflow passed. No partial wake lock was added.
-- **Next step:** consolidate MVP physical-device acceptance on the Galaxy S20 FE and Galaxy S25 using [the checklist](testing.md). Run both role assignments, record each AC-01–AC-15 as `PASS`, `FAIL`, or `NOT TESTED` with build SHA and evidence, and include the two three-hour stability runs. Do not start M6 until results have been reviewed. If device access is unavailable, report that as the blocker and leave all physical-only criteria `NOT TESTED`. Do not merge PRs automatically.
+- **Current UI refinement branch:** `feat/dark-theme-and-launcher-icon` adds a persisted dark-by-default theme switch on role selection and active Camera/Monitor screens, theme-aware system-bar icon contrast, an adaptive vector launcher icon, and updated appearance checks in the docs. Device appearance behavior remains unverified until the owner tests on the target Samsung phones.
+- **Next step:** verify PR CI for the theme/icon change, build its debug APK, and begin the two-phone MVP checklist in [the testing guide](testing.md). Record acceptance evidence; do not infer a pass from CI. Do not merge PRs automatically.
