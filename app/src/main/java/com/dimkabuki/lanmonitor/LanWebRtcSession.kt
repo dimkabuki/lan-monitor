@@ -1036,6 +1036,7 @@ class LanWebRtcSession(
     }
 
     private suspend fun cleanupSession() {
+        shutdownRequested = true
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
         healthJob?.cancel()
