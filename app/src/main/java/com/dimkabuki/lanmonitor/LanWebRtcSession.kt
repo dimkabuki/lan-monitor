@@ -463,14 +463,16 @@ class LanWebRtcSession(
 
     fun stopSession() {
         shutdownRequested = true
-        monitorConnectionJob?.cancel()
+        val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
+        connectionJob?.cancel()
         monitorReconnectRequester = null
         updateUi {
             isBusy = true
             status = "Stopping session…"
         }
         scope.launch {
+            connectionJob?.join()
             cleanupSession()
             updateUi {
                 isBusy = false
@@ -489,10 +491,12 @@ class LanWebRtcSession(
         if (disposed) return
         disposed = true
         shutdownRequested = true
-        monitorConnectionJob?.cancel()
+        val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
+        connectionJob?.cancel()
         monitorReconnectRequester = null
         scope.launch {
+            connectionJob?.join()
             cleanupSession()
             runCatching { peerConnectionFactory?.dispose() }
             peerConnectionFactory = null
