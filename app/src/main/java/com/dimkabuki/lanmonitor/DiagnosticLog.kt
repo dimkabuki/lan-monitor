@@ -2,7 +2,10 @@ package com.dimkabuki.lanmonitor
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.runtime.mutableStateOf
@@ -73,10 +76,16 @@ internal object DiagnosticLog {
             bytesWritten = 0L
             enabled.value = true
             statusMessage.value = "Writing to Download/$DOWNLOADS_SUBDIRECTORY/$name"
+            val appVersion = runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrNull() ?: "unknown"
             appendLineLocked(
                 role,
                 "diagnostic_logging_enabled",
-                "schema=1; max_file_bytes=$MAX_FILE_BYTES; sensitive_payloads=excluded",
+                "schema=1; device_manufacturer=${Build.MANUFACTURER}; device_model=${Build.MODEL}; " +
+                    "android_release=${Build.VERSION.RELEASE}; android_api=${Build.VERSION.SDK_INT}; " +
+                    "app_version=$appVersion; network=${networkSummary(context)}; " +
+                    "max_file_bytes=$MAX_FILE_BYTES; sensitive_payloads=excluded",
             )
         }
     }
@@ -85,6 +94,24 @@ internal object DiagnosticLog {
         synchronized(lock) {
             appendLineLocked(role, event, details)
         }
+    }
+
+    fun networkSummary(context: Context): String = try {
+        val connectivity = context.applicationContext
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivity?.activeNetwork
+        val capabilities = if (network != null) connectivity?.getNetworkCapabilities(network) else null
+        when {
+            connectivity == null -> "connectivity_manager=unavailable"
+            network == null -> "active_network=false"
+            capabilities == null -> "active_network=true; capabilities=unavailable"
+            else -> "active_network=true; wifi=${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}; " +
+                "ethernet=${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)}; " +
+                "internet_capability=${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}; " +
+                "validated=${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}"
+        }
+    } catch (error: Exception) {
+        "network_query_failed=${error.javaClass.simpleName}"
     }
 
     private fun appendLineLocked(role: AppRole, event: String, details: String) {
@@ -101,6 +128,8 @@ internal object DiagnosticLog {
         if (bytesWritten + bytes.size > MAX_FILE_BYTES) {
             enabled.value = false
             statusMessage.value = "Diagnostic log reached the 2 MiB safety limit. Saved to Download/$DOWNLOADS_SUBDIRECTORY/$fileName"
+            resolver = null
+            fileUri = null
             return
         }
 

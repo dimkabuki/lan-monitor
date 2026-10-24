@@ -467,7 +467,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "monitor_connection_attempt",
-                    "attempt=$attemptNumber; host=$host; previous_retry_delay_ms=$retryDelayMs; connected_before=$connectedAtLeastOnce",
+                    "attempt=$attemptNumber; host=$host; previous_retry_delay_ms=$retryDelayMs; connected_before=$connectedAtLeastOnce; network=${DiagnosticLog.networkSummary(appContext)}",
                 )
                 updateUi {
                     isBusy = !connectedAtLeastOnce
@@ -509,7 +509,7 @@ class LanWebRtcSession(
                             )
                             connectedAtLeastOnce = true
                             monitorConnectionStartedAtMs = SystemClock.elapsedRealtime()
-                            DiagnosticLog.log(role, "monitor_join_sent", "attempt=$attemptNumber; token_value=REDACTED")
+                            DiagnosticLog.log(role, "monitor_join_sent", "attempt=$attemptNumber; join_message_sent=true")
                             updateUi {
                                 isBusy = false
                                 sessionActive = true
