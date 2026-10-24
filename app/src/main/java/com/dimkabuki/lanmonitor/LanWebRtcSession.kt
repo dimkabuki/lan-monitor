@@ -82,6 +82,8 @@ class LanWebRtcSession(
         private set
     var pairingToken by androidx.compose.runtime.mutableStateOf("")
         private set
+    var pairingPayload by androidx.compose.runtime.mutableStateOf("")
+        private set
 
     @Volatile private var disposed = false
     @Volatile private var shutdownRequested = false
@@ -157,8 +159,25 @@ class LanWebRtcSession(
                 val token = PairingToken.generate()
                 startCameraSignalingServer(token)
                 val addresses = LocalLanAddress.privateIpv4Addresses()
+                val payload = if (addresses.isNotEmpty()) {
+                    runCatching {
+                        CameraPairingCodec.encode(
+                            CameraPairingPayload(
+                                cameraId = CameraIdentityStore.getOrCreate(appContext),
+                                addresses = addresses.distinct().take(8),
+                                port = SIGNAL_PORT,
+                                token = token,
+                            ),
+                        )
+                    }.getOrElse { error ->
+                        throw IllegalStateException("Could not prepare pairing QR: ${error.message}", error)
+                    }
+                } else {
+                    ""
+                }
                 updateUi {
                     pairingToken = token
+                    pairingPayload = payload
                     cameraAddresses = addresses
                     sessionActive = true
                     isBusy = false
@@ -173,6 +192,9 @@ class LanWebRtcSession(
                 updateUi {
                     isBusy = false
                     sessionActive = false
+                    pairingPayload = ""
+                    pairingToken = ""
+                    cameraAddresses = emptyList()
                     status = "Could not start Camera: ${error.message ?: error.javaClass.simpleName}"
                 }
             }
@@ -267,6 +289,7 @@ class LanWebRtcSession(
                 sessionActive = false
                 cameraAddresses = emptyList()
                 pairingToken = ""
+                pairingPayload = ""
                 status = "Stopped."
             }
         }
