@@ -50,12 +50,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var selectedRole by rememberSaveable { mutableStateOf<AppRole?>(null) }
-                BackHandler(enabled = selectedRole != null) { selectedRole = null }
+                BackHandler(enabled = selectedRole != null) {
+                    selectedRole?.let { SessionControllerStore.stopIfActive(it) }
+                    selectedRole = null
+                }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (selectedRole) {
                         null -> RoleSelectionScreen(onRoleSelected = { selectedRole = it })
-                        AppRole.CAMERA -> CameraScreen(onBack = { selectedRole = null })
-                        AppRole.MONITOR -> MonitorScreen(onBack = { selectedRole = null })
+                        AppRole.CAMERA -> CameraScreen(onBack = {
+                            SessionControllerStore.stopIfActive(AppRole.CAMERA)
+                            selectedRole = null
+                        })
+                        AppRole.MONITOR -> MonitorScreen(onBack = {
+                            SessionControllerStore.stopIfActive(AppRole.MONITOR)
+                            selectedRole = null
+                        })
                     }
                 }
             }
@@ -87,7 +96,7 @@ private fun RoleSelectionScreen(onRoleSelected: (AppRole) -> Unit) {
 @Composable
 private fun CameraScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val session = remember { LanWebRtcSession(context, AppRole.CAMERA) }
+    val session = remember { SessionControllerStore.attachUi(context, AppRole.CAMERA) }
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
     val pairingQrBitmap = remember(session.pairingPayload) {
         session.pairingPayload.takeIf { it.isNotBlank() }?.let { payload ->
@@ -98,7 +107,7 @@ private fun CameraScreen(onBack: () -> Unit) {
     DisposableEffect(session) {
         onDispose {
             renderer?.let { session.detachRenderer(it, local = true) }
-            session.dispose()
+            SessionControllerStore.detachUi(session)
         }
     }
 
@@ -207,7 +216,7 @@ private fun CameraScreen(onBack: () -> Unit) {
 @Composable
 private fun MonitorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val session = remember { LanWebRtcSession(context, AppRole.MONITOR) }
+    val session = remember { SessionControllerStore.attachUi(context, AppRole.MONITOR) }
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
     var host by rememberSaveable { mutableStateOf("") }
     var token by rememberSaveable { mutableStateOf("") }
@@ -262,7 +271,7 @@ private fun MonitorScreen(onBack: () -> Unit) {
     DisposableEffect(session) {
         onDispose {
             renderer?.let { session.detachRenderer(it, local = false) }
-            session.dispose()
+            SessionControllerStore.detachUi(session)
         }
     }
 

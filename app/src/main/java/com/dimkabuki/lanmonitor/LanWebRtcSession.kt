@@ -66,7 +66,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class LanWebRtcSession(
     context: Context,
-    private val role: AppRole,
+    internal val role: AppRole,
 ) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -95,6 +95,16 @@ class LanWebRtcSession(
 
     @Volatile private var disposed = false
     @Volatile private var shutdownRequested = false
+    @Volatile private var controllerHasWork = false
+    @Volatile private var cameraStartJob: Job? = null
+
+    internal val hasSessionWork: Boolean
+        get() = controllerHasWork
+
+    internal val isDisposed: Boolean
+        get() = disposed
+    internal val isShuttingDown: Boolean
+        get() = shutdownRequested
     @Volatile private var cameraSender: ((String) -> Unit)? = null
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
@@ -161,12 +171,13 @@ class LanWebRtcSession(
     fun startCamera() {
         if (role != AppRole.CAMERA || isBusy || sessionActive || disposed) return
         shutdownRequested = false
-        if (!beginForegroundExecution()) return
+        controllerHasWork = true
         updateUi {
             isBusy = true
             status = "Starting camera and local signaling…"
         }
-        scope.launch {
+        if (!beginForegroundExecution()) return
+        cameraStartJob = scope.launch {
             try {
                 ensurePeerConnectionFactory()
                 startLocalMedia()
@@ -207,6 +218,8 @@ class LanWebRtcSession(
                         "Camera ready. Waiting for Monitor."
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 cleanupSession()
                 updateUi {
@@ -218,6 +231,7 @@ class LanWebRtcSession(
                     discoveryStatus = "Not active"
                     status = "Could not start Camera: ${error.message ?: error.javaClass.simpleName}"
                 }
+                SessionControllerStore.onSessionEnded(this@LanWebRtcSession)
             }
         }
     }
@@ -275,7 +289,7 @@ class LanWebRtcSession(
         }
 
         shutdownRequested = false
-        if (!beginForegroundExecution()) return
+        controllerHasWork = true
         monitorTargetHost = requestedHost
         monitorAuthenticationRejected = false
         monitorConnectionStartedAtMs = 0L
@@ -286,6 +300,7 @@ class LanWebRtcSession(
             sessionActive = true
             status = "Connecting to Camera signaling…"
         }
+        if (!beginForegroundExecution()) return
         monitorConnectionJob = scope.launch {
             try {
                 ensurePeerConnectionFactory()
@@ -300,6 +315,7 @@ class LanWebRtcSession(
                         sessionActive = false
                         status = "Could not prepare Monitor media: ${error.message ?: error.javaClass.simpleName}"
                     }
+                    SessionControllerStore.onSessionEnded(this@LanWebRtcSession)
                 }
             }
         }
@@ -456,17 +472,18 @@ class LanWebRtcSession(
             monitorClient = null
             closePeerConnection()
             if (!shutdownRequested && !disposed) {
-                ActiveSessionRegistry.unregister(this)
-                SessionForegroundService.stop(appContext)
+                val terminalStatus = if (monitorAuthenticationRejected) {
+                    "Pairing rejected. Check the Camera QR code and token, then reconnect."
+                } else {
+                    "Camera connection ended."
+                }
+                cleanupSession()
                 updateUi {
                     isBusy = false
                     sessionActive = false
-                    status = if (monitorAuthenticationRejected) {
-                        "Pairing rejected. Check the Camera QR code and token, then reconnect."
-                    } else {
-                        "Camera connection ended."
-                    }
+                    status = terminalStatus
                 }
+                SessionControllerStore.onSessionEnded(this@LanWebRtcSession)
             }
         }
     }
@@ -474,9 +491,12 @@ class LanWebRtcSession(
     fun stopSession() = stopSessionWithStatus("Stopped.")
 
     private fun stopSessionWithStatus(finalStatus: String) {
-        if (shutdownRequested || disposed) return
+        if (shutdownRequested || disposed || !controllerHasWork) return
         shutdownRequested = true
         ActiveSessionRegistry.unregister(this)
+        val startupJob = cameraStartJob
+        cameraStartJob = null
+        startupJob?.cancel()
         SessionForegroundService.stop(appContext)
         val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
@@ -487,6 +507,7 @@ class LanWebRtcSession(
             status = "Stopping session…"
         }
         scope.launch {
+            startupJob?.join()
             connectionJob?.join()
             cleanupSession()
             updateUi {
@@ -499,6 +520,7 @@ class LanWebRtcSession(
                 discoveredCameraAddress = ""
                 status = finalStatus
             }
+            SessionControllerStore.onSessionEnded(this@LanWebRtcSession)
         }
     }
 
@@ -506,23 +528,59 @@ class LanWebRtcSession(
         if (disposed) return
         disposed = true
         shutdownRequested = true
+        controllerHasWork = false
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
+        val startupJob = cameraStartJob
+        cameraStartJob = null
+        startupJob?.cancel()
         val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
         connectionJob?.cancel()
         monitorReconnectRequester = null
         scope.launch {
+            startupJob?.join()
             connectionJob?.join()
             cleanupSession()
-            runCatching { peerConnectionFactory?.dispose() }
-            peerConnectionFactory = null
-            runCatching { eglBase.release() }
+            releaseControllerResources()
             scope.cancel()
         }
     }
 
+    /**
+     * Releases WebRTC factory/EGL resources after [cleanupSession] already completed.
+     */
+    internal fun disposeAfterCleanup() {
+        if (disposed) return
+        disposed = true
+        shutdownRequested = true
+        controllerHasWork = false
+        ActiveSessionRegistry.unregister(this)
+        SessionForegroundService.stop(appContext)
+        scope.launch {
+            releaseControllerResources()
+            scope.cancel()
+        }
+    }
+
+    private suspend fun releaseControllerResources() {
+        runCatching { peerConnectionFactory?.dispose() }
+        peerConnectionFactory = null
+        runCatching { eglBase.release() }
+    }
+
     private fun beginForegroundExecution(): Boolean {
+        val admissionError = SessionControllerStore.admissionError(this)
+        if (admissionError != null) {
+            controllerHasWork = false
+            shutdownRequested = true
+            updateUi {
+                isBusy = false
+                sessionActive = false
+                status = admissionError
+            }
+            return false
+        }
         ActiveSessionRegistry.register(
             owner = this,
             onStop = { stopSession() },
@@ -532,8 +590,13 @@ class LanWebRtcSession(
         if (error == null) return true
 
         ActiveSessionRegistry.unregister(this)
+        controllerHasWork = false
         shutdownRequested = true
-        updateStatus(error)
+        updateUi {
+            isBusy = false
+            sessionActive = false
+            status = error
+        }
         return false
     }
 
@@ -973,6 +1036,7 @@ class LanWebRtcSession(
     }
 
     private suspend fun cleanupSession() {
+        shutdownRequested = true
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
         healthJob?.cancel()
@@ -1006,6 +1070,7 @@ class LanWebRtcSession(
         monitorConnectionStartedAtMs = 0L
         monitorAuthenticationRejected = false
         serverConnectionClaimed.set(false)
+        controllerHasWork = false
         updateUi {
             sessionActive = false
             isBusy = false

@@ -50,8 +50,12 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Remote microphone audio is audible; Monitor mute/unmute control works once implemented.
 - [ ] Camera does not report Streaming from ICE state alone.
 - [ ] Stop Monitoring and Stop Session close their connection/capture paths and clear active UI state.
+- [ ] Recreating the Activity while an active session is running reuses the same controller and does not silently stop the session; the renderer reattaches.
+- [ ] Navigating Back from the active role intentionally stops the session and removes the ongoing foreground notification.
+- [ ] Starting the other role while a different role's session remains active is rejected with a useful message.
 - [ ] The ongoing notification's Stop action stops capture/signaling or Monitor connection cleanup.
 - [ ] Removing the app task from Recents requests session cleanup and removes the ongoing notification.
+- [ ] Process death is not treated as a supported automatic-recovery path; reopening the app does not falsely show a previous session as active.
 - [ ] With notification permission denied, the UI explains that Android may hide the active notification from the drawer and points to system Settings.
 - [ ] Repeated Start/Stop actions do not create duplicate services, servers, capture tracks or peer connections.
 
