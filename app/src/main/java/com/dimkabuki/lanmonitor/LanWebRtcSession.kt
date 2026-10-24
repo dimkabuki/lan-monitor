@@ -284,7 +284,20 @@ class LanWebRtcSession(
             status = "Connecting to Camera signaling…"
         }
         monitorConnectionJob = scope.launch {
-            runMonitorConnectionLoop(requestedHost, requestedToken)
+            try {
+                ensurePeerConnectionFactory()
+                runMonitorConnectionLoop(requestedHost, requestedToken)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (!shutdownRequested && !disposed) {
+                    updateUi {
+                        isBusy = false
+                        sessionActive = false
+                        status = "Could not prepare Monitor media: ${error.message ?: error.javaClass.simpleName}"
+                    }
+                }
+            }
         }
     }
 
