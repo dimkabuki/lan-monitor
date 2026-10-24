@@ -358,7 +358,6 @@ class LanWebRtcSession(
                                 JSONObject().put("type", "join").put("token", token).toString(),
                             )
                             connectedAtLeastOnce = true
-                            retryDelayMs = MonitorReconnectPolicy.INITIAL_DELAY_MS
                             monitorConnectionStartedAtMs = SystemClock.elapsedRealtime()
                             updateUi {
                                 isBusy = false
@@ -409,6 +408,9 @@ class LanWebRtcSession(
                         }
                     }
                 } finally {
+                    // Reset backoff only after media actually flowed. A WebSocket upgrade alone
+                    // can be immediately rejected while the Camera is still cleaning up a peer.
+                    val hadDecodedFrames = lastRemoteVideoFrameAtMs > 0L
                     if (monitorClient === attemptClient) monitorClient = null
                     runCatching { attemptClient?.close() }
                     monitorSender = null
@@ -416,6 +418,9 @@ class LanWebRtcSession(
                     healthJob?.cancel()
                     healthJob = null
                     closePeerConnection()
+                    if (hadDecodedFrames) {
+                        retryDelayMs = MonitorReconnectPolicy.INITIAL_DELAY_MS
+                    }
                 }
 
                 if (
