@@ -11,13 +11,14 @@ Lan Monitor is a single native Android app using Kotlin and Jetpack Compose.
 - **Signaling:** Offer/answer SDP and ICE candidates are exchanged over one authenticated WebSocket connection. The Camera accepts only one Monitor in the current implementation.
 - **Media:** WebRTC carries audio/video directly between peers. No STUN/TURN servers are configured. Capture profile is 640×480 at 15 fps.
 - **Health:** Monitor reports whether decoded video frames have advanced recently. Camera does not claim healthy media based only on ICE state. The three-second decoded-frame timeout policy has deterministic JVM tests.
-- **Lifecycle/scope limits:** Camera UI must remain open. QR scanning only imports the currently advertised address hints; mDNS/DNS-SD discovery and reconnection following IP changes or Wi-Fi loss are not yet implemented. Background/screen-off operation, two Monitors, adaptive quality and movement detection remain future work.
+- **Discovery:** Camera advertises the stable UUID through Android `NsdManager` using DNS-SD/mDNS; the TXT record includes only the identity and protocol version, never the pairing token. After scanning the QR, Monitor discovers services matching the stable ID, resolves the service, validates its protocol version and private IPv4 address, then updates the connection address. Manual IP and QR address hints remain fallbacks.
+- **Lifecycle/scope limits:** Camera UI must remain open. Discovery address updates are implemented, but automatic media reconnection following IP changes or Wi-Fi loss is not yet implemented. Background/screen-off operation, two Monitors, adaptive quality and movement detection remain future work.
 
 ## Pairing and identity boundaries
 
 - The Camera identity is a random UUID stored in private app preferences and is intended to remain stable across sessions on the same installation. Clearing app data creates a new identity.
 - A fresh cryptographic pairing token is created for each Camera session and is included in the QR as well as the manual fallback. The token is not stored across sessions and is not logged.
-- The QR has current private IPv4 addresses as connection hints, not as its identity. The stable UUID is reserved for local service discovery in the next implementation slice. Until that slice lands, the Monitor connects to one of the address hints.
+- The QR has current private IPv4 addresses as connection hints, not as its identity. The stable UUID is advertised through local DNS-SD/mDNS and is used to find the same Camera when its address changes. Until discovery succeeds, the Monitor can use one of the address hints or manual entry.
 - QR payloads are unencrypted and contain the temporary token. Only show them to the intended Monitor on the trusted home LAN.
 - Manual host entry continues to accept private IPv4 addresses only; the Camera signaling server rejects remote peers outside the allowed private/link-local IPv4 ranges and requires the token.
 
@@ -34,6 +35,7 @@ Lan Monitor is a single native Android app using Kotlin and Jetpack Compose.
 | WebRTC Android SDK | 150.7871.01 |
 | Ktor client/server | 3.6.0 |
 | QR scanner / QR encoder | ZXing Android Embedded 4.3.0 |
+| Local discovery | Android `NsdManager` / DNS-SD |
 | compileSdk / targetSdk | 36 |
 | minSdk | 33 |
 | Namespace / application ID | `com.dimkabuki.lanmonitor` |
@@ -55,7 +57,6 @@ Re-check official compatibility tables before updating pinned versions. The targ
 
 ## Next architecture steps
 
-1. Add local NSD/DNS-SD discovery using the stable Camera UUID so Monitor can find the correct Camera even when its IP address changes. Keep manual IP entry as fallback.
-2. Add lifecycle-safe reconnect after brief Wi-Fi loss and camera IP changes without rebuilding capture unnecessarily.
-3. Add foreground-service-backed monitoring, screen-off behavior, movement detection and notifications.
-4. Add two-Monitor handling, adaptive quality and extended stability/diagnostic tests.
+1. Add lifecycle-safe reconnect after brief Wi-Fi loss and Camera IP changes without rebuilding capture unnecessarily, using the current discovery result while retaining manual fallback.
+2. Add foreground-service-backed monitoring, screen-off behavior, movement detection and notifications.
+3. Add two-Monitor handling, adaptive quality and extended stability/diagnostic tests.

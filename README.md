@@ -8,7 +8,7 @@ Lan Monitor is a native Android app for direct, local-network audio/video monito
 - **Pairing:** Camera displays a QR code containing a versioned pairing payload, stable local Camera identity, private IPv4 address hints, signaling port and temporary token. Monitor can scan the code to fill in the connection details.
 - **Manual fallback:** The Monitor still supports entering a private IPv4 address and temporary token manually.
 - **Media:** WebRTC carries audio and video directly between peers. No STUN/TURN, cloud signaling, analytics, telemetry or media recording is configured.
-- **Current limits:** One Monitor per Camera. The Camera screen must remain open. QR scanning imports the address hints but does not yet provide mDNS discovery or recovery after the Camera's IP address changes. Background/screen-off monitoring, movement detection, adaptive quality and full reconnect handling remain to be implemented.
+- **Local discovery:** Camera advertises its stable UUID with DNS-SD/mDNS. After scanning a QR, Monitor searches for the matching identity and updates the address field when it resolves a private IPv4 address. The token is not broadcast in discovery records. The QR address/manual IP remains a fallback. Automatic media reconnection after address changes or Wi-Fi loss is still to be implemented.
 - **Builds:** Pull-request CI compiles Kotlin code and runs unit tests. A debug APK can be built on demand from GitHub Actions, and pushes to main publish development pre-releases. Debug APKs are not production-signed.
 
 ## Pairing workflow
