@@ -34,7 +34,9 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Camera advertises its stable identity with DNS-SD/mDNS while the Camera session is active.
 - [ ] After QR scan, Monitor automatically searches for the exact paired Camera identity and updates the address when a matching private IPv4 endpoint resolves.
 - [ ] The discovery advertisement does not contain the pairing token.
-- [ ] A Camera IP/address change is observed by discovery. Confirm actual media reconnects within the target in the consolidated MVP phase; discovery alone does not constitute reconnect support.
+- [ ] During an active session, a Camera IP change updates the paired endpoint and signaling/WebRTC reconnects without rescanning the QR.
+- [ ] After a brief Wi-Fi outage, signaling retries automatically with bounded backoff; confirm video and audio recover within 15 seconds after LAN connectivity returns.
+- [ ] A prolonged frame stall or WebRTC ICE failure triggers reconnection, while a wrong pairing token stops retrying and shows a useful error.
 - [ ] If discovery is blocked or fails, the QR address and manual IP/token fields remain usable.
 - [ ] A malformed/unsupported QR is rejected without crashing.
 - [ ] Manual IP/token entry remains available as a fallback.
