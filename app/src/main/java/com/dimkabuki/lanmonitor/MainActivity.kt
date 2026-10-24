@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -206,7 +207,8 @@ private fun MonitorScreen(onBack: () -> Unit) {
                 host = pairing.addresses.first()
                 token = pairing.token
                 pairedCameraId = pairing.cameraId
-                session.showMessage("Pairing details loaded. Check the Camera address, then tap Connect.")
+                session.showMessage("Pairing details loaded. Searching for this Camera on the local network.")
+                session.discoverPairedCamera(pairing.cameraId)
             }
         }
     }
@@ -270,8 +272,21 @@ private fun MonitorScreen(onBack: () -> Unit) {
         ) {
             Text("Scan Camera QR")
         }
+        LaunchedEffect(session.discoveredCameraAddress) {
+            if (session.discoveredCameraAddress.isNotBlank()) {
+                host = session.discoveredCameraAddress
+            }
+        }
         if (pairedCameraId.isNotBlank()) {
             Text("Camera identity: $pairedCameraId", style = MaterialTheme.typography.bodySmall)
+            Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
+            Button(
+                onClick = { session.discoverPairedCamera(pairedCameraId) },
+                enabled = !session.isBusy && !session.sessionActive,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Find Camera on LAN")
+            }
         }
         OutlinedTextField(
             value = host,
@@ -308,6 +323,10 @@ private fun MonitorScreen(onBack: () -> Unit) {
             }
         }
         Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "Scanning by Camera identity only updates the connection address. If local discovery is unavailable, use the address embedded in the QR or type an address manually.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         Text(
             "Use a private LAN IPv4 address and the temporary token shown by Camera. Video and audio travel directly over WebRTC; this app configures no STUN/TURN or cloud signaling.",
             style = MaterialTheme.typography.bodySmall,
