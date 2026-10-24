@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -312,7 +313,7 @@ class LanWebRtcSession(
 
         try {
             while (
-                isActive &&
+                currentCoroutineContext().isActive &&
                 !shutdownRequested &&
                 !disposed &&
                 !monitorAuthenticationRejected
@@ -417,7 +418,12 @@ class LanWebRtcSession(
                     closePeerConnection()
                 }
 
-                if (!isActive || shutdownRequested || disposed || monitorAuthenticationRejected) break
+                if (
+                    !currentCoroutineContext().isActive ||
+                    shutdownRequested ||
+                    disposed ||
+                    monitorAuthenticationRejected
+                ) break
 
                 updateUi {
                     isBusy = false
