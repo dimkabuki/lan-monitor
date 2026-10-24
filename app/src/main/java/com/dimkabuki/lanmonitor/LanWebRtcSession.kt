@@ -161,6 +161,7 @@ class LanWebRtcSession(
     fun startCamera() {
         if (role != AppRole.CAMERA || isBusy || sessionActive || disposed) return
         shutdownRequested = false
+        if (!beginForegroundExecution()) return
         updateUi {
             isBusy = true
             status = "Starting camera and local signaling…"
@@ -274,6 +275,7 @@ class LanWebRtcSession(
         }
 
         shutdownRequested = false
+        if (!beginForegroundExecution()) return
         monitorTargetHost = requestedHost
         monitorAuthenticationRejected = false
         monitorConnectionStartedAtMs = 0L
@@ -292,6 +294,7 @@ class LanWebRtcSession(
                 throw cancelled
             } catch (error: Throwable) {
                 if (!shutdownRequested && !disposed) {
+                    cleanupSession()
                     updateUi {
                         isBusy = false
                         sessionActive = false
@@ -453,6 +456,8 @@ class LanWebRtcSession(
             monitorClient = null
             closePeerConnection()
             if (!shutdownRequested && !disposed) {
+                ActiveSessionRegistry.unregister(this)
+                SessionForegroundService.stop(appContext)
                 updateUi {
                     isBusy = false
                     sessionActive = false
@@ -466,8 +471,13 @@ class LanWebRtcSession(
         }
     }
 
-    fun stopSession() {
+    fun stopSession() = stopSessionWithStatus("Stopped.")
+
+    private fun stopSessionWithStatus(finalStatus: String) {
+        if (shutdownRequested || disposed) return
         shutdownRequested = true
+        ActiveSessionRegistry.unregister(this)
+        SessionForegroundService.stop(appContext)
         val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
         connectionJob?.cancel()
@@ -487,7 +497,7 @@ class LanWebRtcSession(
                 pairingPayload = ""
                 discoveryStatus = "Stopped"
                 discoveredCameraAddress = ""
-                status = "Stopped."
+                status = finalStatus
             }
         }
     }
@@ -496,6 +506,8 @@ class LanWebRtcSession(
         if (disposed) return
         disposed = true
         shutdownRequested = true
+        ActiveSessionRegistry.unregister(this)
+        SessionForegroundService.stop(appContext)
         val connectionJob = monitorConnectionJob
         monitorConnectionJob = null
         connectionJob?.cancel()
@@ -508,6 +520,21 @@ class LanWebRtcSession(
             runCatching { eglBase.release() }
             scope.cancel()
         }
+    }
+
+    private fun beginForegroundExecution(): Boolean {
+        ActiveSessionRegistry.register(
+            owner = this,
+            onStop = { stopSession() },
+            onFailure = { message -> stopSessionWithStatus(message) },
+        )
+        val error = SessionForegroundService.start(appContext, role)
+        if (error == null) return true
+
+        ActiveSessionRegistry.unregister(this)
+        shutdownRequested = true
+        updateStatus(error)
+        return false
     }
 
     private suspend fun ensurePeerConnectionFactory() {
@@ -946,6 +973,8 @@ class LanWebRtcSession(
     }
 
     private suspend fun cleanupSession() {
+        ActiveSessionRegistry.unregister(this)
+        SessionForegroundService.stop(appContext)
         healthJob?.cancel()
         healthJob = null
         runCatching { monitorClient?.close() }
