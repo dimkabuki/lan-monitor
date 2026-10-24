@@ -83,8 +83,14 @@ class SessionForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        retainedController?.let(SessionControllerStore::releaseService)
+        val controller = retainedController
         retainedController = null
+        if (controller?.hasSessionWork == true && !controller.isShuttingDown) {
+            // If Android removes the service independently, do not leave media running without
+            // the foreground priority promised to the user.
+            controller.stopSession()
+        }
+        controller?.let(SessionControllerStore::releaseService)
         super.onDestroy()
     }
 
