@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.12  
+**Version:** 1.13  
 **Date:** 2026-10-24  
-**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery, signaling/WebRTC recovery and the PR #8–#9 lifecycle baseline are merged. The current lifecycle hardening makes Camera media-resource acquisition transactional: startup failures release partially created resources. Process-death recovery and consolidated physical-device acceptance remain pending.  
+**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery, signaling/WebRTC recovery and PR #8–#10 lifecycle hardening are merged. M5 movement analysis/notifications are implemented on the current development branch with deterministic policy tests; parameter tuning and consolidated physical-device acceptance remain pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -116,6 +116,7 @@ The QR payload must not depend solely on the current IP address. It must contain
 - Enforce at least an 8-second cooldown between movement notifications.
 - Do not implement crying detection, sound classification, or audio-triggered alarms in this release. Audio must be transmitted, but audio must not be analyzed for event detection. Silence in the room is not a stream failure.
 - If notification permission is denied, show a clear explanation and next step; do not claim notifications can be delivered.
+- Initial implementation parameters: sample the decoded I420 luma plane at 96×72, at most every 250 ms; subtract mean signed luma change to suppress global brightness shifts; count samples with residual luma change of at least 20; confirm an event when at least 10% of samples change for 3 consecutive analysis frames; re-arm after 4 quiet samples. Apply an 8-second monotonic-time cooldown per Monitor session. These are initial values to validate, not claimed detection-accuracy results.
 
 ### FR-04 — Stream health and diagnostics
 
@@ -347,12 +348,12 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M1 — Android scaffold and CI: COMPLETE (2026-10-23).** Kotlin/Compose role-selection placeholder, Gradle wrapper, unit test, pull-request compile/test workflow, optional manual APK job, development pre-release workflow, README and documentation are merged to `main`. The required CI ran green and the first development pre-release succeeded.
 - **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
 - **M3 — Pairing and discovery: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery. PR #7 adds initial active-session reconnection; physical recovery timing remains unverified.
-- **M4 — Lifecycle: IN PROGRESS.** PR #8 adds typed foreground-service scaffolding. PR #9 adds process-level controller retention, service references and Activity/Compose reattachment; process-death recovery and physical background/screen-off acceptance remain pending.
-- **M5 — Media health and movement:** watchdogs, movement detector, notification channel and screen-off/background monitoring.
+- **M4 — Lifecycle: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #8 adds typed foreground-service scaffolding, PR #9 adds process-level controller retention/service references and Activity/Compose reattachment, and PR #10 makes Camera media startup cleanup transactional. Process-death recovery and physical background/screen-off acceptance remain pending.
+- **M5 — Media health and movement: IN PROGRESS.** The first movement-alert slice samples decoded Monitor luma frames, applies brightness compensation and temporal confirmation, posts Android notifications with an 8-second cooldown, and has deterministic JVM policy tests. Screen-on behavior, any required wake lock, and physical false-positive/latency tuning remain outstanding.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
-M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), active-session recovery (PR #7), and foreground-service scaffolding (PR #8) are merged into `main`. PR #9 adds a process-level controller store shared by Compose and the foreground service so an active in-memory session can survive screen disposal and Activity recreation while the process remains alive. It does not implement recovery after process death. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
+M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), active-session recovery (PR #7), foreground-service scaffolding (PR #8), session-controller retention (PR #9), and transactional Camera startup cleanup (PR #10) are merged into `main`. PR #9 adds a process-level controller store shared by Compose and the foreground service so an active in-memory session can survive screen disposal and Activity recreation while the process remains alive. It does not implement recovery after process death. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
 
 ## 13. Rules for the coding agent
 
