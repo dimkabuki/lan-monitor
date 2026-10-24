@@ -4,7 +4,7 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, and the policy that accepts a discovery address only when the advertised Camera identity matches the QR identity and the resolved IPv4 address is private. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, and the same-process active-session registry's Stop/error callback routing. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
 
 ## Physical-device test timing
 
@@ -23,7 +23,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 
 - [ ] Install the same MVP debug APK on both devices.
 - [ ] App launches; role selection and all visible UI text are in English.
-- [ ] Camera role asks for camera and microphone permissions only when starting a session.
+- [ ] Camera role asks for camera and microphone permissions only when starting a session; notification permission is requested contextually and denial does not block a session whose capture permissions are granted.
 - [ ] Monitor QR scanner requests camera permission when needed; denial is handled with a clear message and manual-entry fallback remains usable.
 - [ ] Permission revocation or a missing camera/microphone leads to a truthful error, not a false Connected/Streaming state.
 
@@ -50,7 +50,10 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Remote microphone audio is audible; Monitor mute/unmute control works once implemented.
 - [ ] Camera does not report Streaming from ICE state alone.
 - [ ] Stop Monitoring and Stop Session close their connection/capture paths and clear active UI state.
-- [ ] Repeated Start/Stop actions do not create duplicate servers, capture tracks or peer connections.
+- [ ] The ongoing notification's Stop action stops capture/signaling or Monitor connection cleanup.
+- [ ] Removing the app task from Recents requests session cleanup and removes the ongoing notification.
+- [ ] With notification permission denied, the UI explains that Android may hide the active notification from the drawer and points to system Settings.
+- [ ] Repeated Start/Stop actions do not create duplicate services, servers, capture tracks or peer connections.
 
 ### 4. LAN-only behavior and rediscovery
 
@@ -63,7 +66,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 
 ### 5. Background, notifications, and movement
 
-- [ ] Monitor remains active after switching to another app.
+- [ ] Monitor remains active after switching to another app, with its ongoing foreground-service notification shown when notification permission permits it.
 - [ ] Monitor continues to receive/analyze frames while the screen is off, to the extent allowed by Android/Samsung policies.
 - [ ] While Monitor is active and foregrounded, its screen stays awake.
 - [ ] Confirmed motion creates a normal Android notification; notification permission denial is explained clearly.

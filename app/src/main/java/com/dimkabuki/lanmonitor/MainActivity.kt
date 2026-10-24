@@ -2,6 +2,7 @@ package com.dimkabuki.lanmonitor
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -103,8 +104,11 @@ private fun CameraScreen(onBack: () -> Unit) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) { grants ->
-        if (grants.values.all { it }) {
+    ) { _ ->
+        val capturePermissionsGranted =
+            context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (capturePermissionsGranted) {
             session.startCamera()
         } else {
             session.showMessage("Camera and microphone permissions are required to start a session.")
@@ -131,14 +135,24 @@ private fun CameraScreen(onBack: () -> Unit) {
         )
         Button(
             onClick = {
-                val granted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-                    context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                if (granted) {
+                val permissionsToRequest = buildList {
+                    if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        add(Manifest.permission.CAMERA)
+                    }
+                    if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        add(Manifest.permission.RECORD_AUDIO)
+                    }
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                if (permissionsToRequest.isEmpty()) {
                     session.startCamera()
                 } else {
-                    permissionLauncher.launch(
-                        arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO),
-                    )
+                    permissionLauncher.launch(permissionsToRequest.toTypedArray())
                 }
             },
             enabled = !session.isBusy && !session.sessionActive,
@@ -156,6 +170,9 @@ private fun CameraScreen(onBack: () -> Unit) {
             }
         }
         Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+        if (session.sessionActive || session.isBusy) {
+            NotificationPermissionNotice(context = context, visible = true)
+        }
         if (session.sessionActive) {
             Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
         }
@@ -181,7 +198,7 @@ private fun CameraScreen(onBack: () -> Unit) {
             Text("The token is held only in memory and is not logged.")
         }
         Text(
-            "Keep this screen open for the M2 baseline. Background and screen-off operation will be addressed in a later milestone.",
+            "An ongoing foreground-service notification accompanies active sessions. Background and screen-off reliability still require verification on the target devices; removing the app from Recents stops the session.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -195,6 +212,7 @@ private fun MonitorScreen(onBack: () -> Unit) {
     var host by rememberSaveable { mutableStateOf("") }
     var token by rememberSaveable { mutableStateOf("") }
     var pairedCameraId by rememberSaveable { mutableStateOf("") }
+    var connectAfterNotificationPrompt by rememberSaveable { mutableStateOf(false) }
 
     val scanLauncher = rememberLauncherForActivityResult(
         contract = ScanContract(),
@@ -213,6 +231,15 @@ private fun MonitorScreen(onBack: () -> Unit) {
                 session.showMessage("Pairing details loaded. Searching for this Camera on the local network.")
                 session.discoverPairedCamera(pairing.cameraId)
             }
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { _ ->
+        if (connectAfterNotificationPrompt) {
+            connectAfterNotificationPrompt = false
+            session.connectToCamera(host.trim(), token.trim())
         }
     }
 
@@ -310,13 +337,24 @@ private fun MonitorScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
-            onClick = { session.connectToCamera(host.trim(), token.trim()) },
+            onClick = {
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    connectAfterNotificationPrompt = true
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    session.connectToCamera(host.trim(), token.trim())
+                }
+            },
             enabled = !session.isBusy && !session.sessionActive && host.isNotBlank() && token.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (session.isBusy) "Connecting…" else "Connect to Camera")
         }
         if (session.sessionActive || session.isBusy) {
+            NotificationPermissionNotice(context = context, visible = true)
             Button(
                 onClick = session::stopSession,
                 enabled = !session.isBusy || session.sessionActive,
@@ -332,6 +370,20 @@ private fun MonitorScreen(onBack: () -> Unit) {
         )
         Text(
             "Use a private LAN IPv4 address and the temporary token shown by Camera. Video and audio travel directly over WebRTC; this app configures no STUN/TURN or cloud signaling.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun NotificationPermissionNotice(context: android.content.Context, visible: Boolean) {
+    if (
+        visible &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        Text(
+            "Notifications are disabled. Android may hide the active-session notification from the notification drawer. Enable Lan Monitor notifications in system Settings; the active service remains visible in Android Task Manager.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
