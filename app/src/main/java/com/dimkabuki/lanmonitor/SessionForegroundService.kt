@@ -19,6 +19,8 @@ import android.os.IBinder
  * permissions; stopping always requests session cleanup first.
  */
 class SessionForegroundService : Service() {
+    private var retainedController: LanWebRtcSession? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -41,6 +43,24 @@ class SessionForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        val controller = SessionControllerStore.findForService(role)
+        if (controller == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (retainedController !== controller) {
+            if (!SessionControllerStore.retainService(controller)) {
+                ActiveSessionRegistry.reportFailure(
+                    "Another Lan Monitor session is already active. Stop it before starting a different role.",
+                )
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
+            val previous = retainedController
+            retainedController = controller
+            previous?.let(SessionControllerStore::releaseService)
+        }
+
         return try {
             startForeground(NOTIFICATION_ID, buildNotification(role), foregroundServiceType(role))
             START_NOT_STICKY
@@ -60,6 +80,12 @@ class SessionForegroundService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onDestroy() {
+        retainedController?.let(SessionControllerStore::releaseService)
+        retainedController = null
+        super.onDestroy()
     }
 
     private fun foregroundServiceType(role: AppRole): Int = when (role) {
