@@ -28,10 +28,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.*
 import org.json.JSONObject
 import org.webrtc.AudioTrack
 import org.webrtc.Camera2Enumerator
@@ -102,6 +105,10 @@ class LanWebRtcSession(
     private var localCameraNsd: LocalCameraNsd? = null
     private var monitorClient: HttpClient? = null
     private var monitorConnectionJob: Job? = null
+    @Volatile private var monitorTargetHost: String? = null
+    @Volatile private var monitorAuthenticationRejected = false
+    @Volatile private var monitorReconnectRequester: (() -> Unit)? = null
+    @Volatile private var monitorConnectionStartedAtMs = 0L
     private var healthJob: Job? = null
     private var peerConnection: PeerConnection? = null
     private var cameraCapturer: CameraVideoCapturer? = null
@@ -221,9 +228,14 @@ class LanWebRtcSession(
         nsd.startDiscovery(
             expectedCameraId = cameraId,
             onFound = { address ->
+                // Keep the latest validated endpoint for the active reconnect loop.
+                monitorTargetHost = address
                 updateUi {
                     discoveredCameraAddress = address
                     discoveryStatus = "Paired Camera found at $address."
+                    if (sessionActive && monitorSender == null) {
+                        status = "Paired Camera found at $address; reconnecting."
+                    }
                 }
             },
             onLost = {
@@ -249,73 +261,181 @@ class LanWebRtcSession(
 
     fun connectToCamera(host: String, token: String) {
         if (role != AppRole.MONITOR || isBusy || sessionActive || disposed) return
-        if (!LocalLanAddress.isPrivateIpv4(host)) {
+        val requestedHost = host.trim()
+        if (!LocalLanAddress.isPrivateIpv4(requestedHost)) {
             updateStatus("Enter the Camera's private IPv4 address, for example 192.168.1.20.")
             return
         }
-        if (token.isBlank()) {
+        val requestedToken = token.trim()
+        if (requestedToken.isBlank()) {
             updateStatus("Enter the pairing token shown on the Camera device.")
             return
         }
 
         shutdownRequested = false
+        monitorTargetHost = requestedHost
+        monitorAuthenticationRejected = false
+        monitorConnectionStartedAtMs = 0L
+        monitorConnectionJob?.cancel()
         updateUi {
             isBusy = true
+            // Keep Stop available while a connection is being retried.
+            sessionActive = true
             status = "Connecting to Camera signaling…"
         }
         monitorConnectionJob = scope.launch {
-            try {
-                ensurePeerConnectionFactory()
-                val client = HttpClient(ClientCIO) { install(ClientWebSockets) }
-                monitorClient = client
-                client.webSocket(urlString = "ws://$host:$SIGNAL_PORT/signal") {
-                    val outbound = Channel<String>(Channel.UNLIMITED)
-                    val sender: (String) -> Unit = { raw ->
-                        outbound.trySend(raw)
-                        Unit
+            runMonitorConnectionLoop(requestedHost, requestedToken)
+        }
+    }
+
+    /**
+     * Keeps the user's pairing intent alive while the Camera is temporarily unreachable.
+     * Every attempt uses the latest identity-validated discovery address, falling back to
+     * the original QR/manual address until discovery supplies a better endpoint.
+     */
+    private suspend fun runMonitorConnectionLoop(initialHost: String, token: String) {
+        var connectedAtLeastOnce = false
+        var retryDelayMs = MonitorReconnectPolicy.INITIAL_DELAY_MS
+
+        try {
+            while (
+                isActive &&
+                !shutdownRequested &&
+                !disposed &&
+                !monitorAuthenticationRejected
+            ) {
+                val host = monitorTargetHost
+                    ?.takeIf { LocalLanAddress.isPrivateIpv4(it) }
+                    ?: initialHost
+                updateUi {
+                    isBusy = !connectedAtLeastOnce
+                    sessionActive = true
+                    status = if (connectedAtLeastOnce) {
+                        "Reconnecting to paired Camera at $host…"
+                    } else {
+                        "Connecting to Camera at $host…"
                     }
-                    monitorSender = sender
-                    val writer = launch {
-                        for (raw in outbound) send(Frame.Text(raw))
+                }
+
+                var attemptClient: HttpClient? = null
+                try {
+                    val client = HttpClient(ClientCIO) { install(ClientWebSockets) }
+                    attemptClient = client
+                    monitorClient = client
+                    client.webSocket(urlString = "ws://$host:$SIGNAL_PORT/signal") {
+                        val outbound = Channel<String>(Channel.UNLIMITED)
+                        val reconnectSignal = Channel<Unit>(Channel.CONFLATED)
+                        val sender: (String) -> Unit = { raw ->
+                            outbound.trySend(raw)
+                            Unit
+                        }
+                        val requestReconnect: () -> Unit = {
+                            reconnectSignal.trySend(Unit)
+                            Unit
+                        }
+                        monitorSender = sender
+                        monitorReconnectRequester = requestReconnect
+                        val writer = launch {
+                            for (raw in outbound) send(Frame.Text(raw))
+                        }
+                        var recoveryRequested = false
+                        try {
+                            outbound.trySend(
+                                JSONObject().put("type", "join").put("token", token).toString(),
+                            )
+                            connectedAtLeastOnce = true
+                            retryDelayMs = MonitorReconnectPolicy.INITIAL_DELAY_MS
+                            monitorConnectionStartedAtMs = SystemClock.elapsedRealtime()
+                            updateUi {
+                                isBusy = false
+                                sessionActive = true
+                                status = "Connected to signaling; waiting for Camera media."
+                            }
+                            startMonitorHealthLoop()
+
+                            coroutineScope {
+                                val reader = launch {
+                                    for (frame in incoming) {
+                                        if (frame is Frame.Text) {
+                                            handleSignalMessage(JSONObject(frame.readText()))
+                                        }
+                                    }
+                                }
+                                select<Unit> {
+                                    reader.onJoin { }
+                                    reconnectSignal.onReceive { recoveryRequested = true }
+                                }
+                                reader.cancelAndJoin()
+                            }
+                        } finally {
+                            if (monitorSender === sender) monitorSender = null
+                            if (monitorReconnectRequester === requestReconnect) {
+                                monitorReconnectRequester = null
+                            }
+                            reconnectSignal.close()
+                            outbound.close()
+                            writer.cancel()
+                        }
+                        if (recoveryRequested && !shutdownRequested && !disposed) {
+                            updateStatus("Media transport stalled; reconnecting to the paired Camera.")
+                        }
                     }
-                    outbound.trySend(JSONObject().put("type", "join").put("token", token).toString())
-                    updateUi {
-                        isBusy = false
-                        sessionActive = true
-                        status = "Connected to signaling; waiting for Camera."
-                    }
-                    startMonitorHealthLoop()
-                    try {
-                        for (frame in incoming) {
-                            if (frame is Frame.Text) {
-                                handleSignalMessage(JSONObject(frame.readText()))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    if (!shutdownRequested && !disposed && !monitorAuthenticationRejected) {
+                        updateUi {
+                            isBusy = false
+                            sessionActive = true
+                            status = if (connectedAtLeastOnce) {
+                                "Signaling interrupted: ${error.message ?: error.javaClass.simpleName}. Retrying."
+                            } else {
+                                "Camera not reachable: ${error.message ?: error.javaClass.simpleName}. Retrying."
                             }
                         }
-                    } finally {
-                        if (monitorSender === sender) monitorSender = null
-                        outbound.close()
-                        writer.cancel()
                     }
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                if (!shutdownRequested && !disposed) {
-                    updateUi {
-                        isBusy = false
-                        sessionActive = false
-                        status = "Connection failed: ${error.message ?: error.javaClass.simpleName}"
-                    }
-                }
-            } finally {
-                if (!shutdownRequested && !disposed) {
+                } finally {
+                    if (monitorClient === attemptClient) monitorClient = null
+                    runCatching { attemptClient?.close() }
+                    monitorSender = null
+                    monitorReconnectRequester = null
+                    healthJob?.cancel()
+                    healthJob = null
                     closePeerConnection()
-                    updateUi {
-                        isBusy = false
-                        sessionActive = false
-                        if (!status.startsWith("Connection failed") && !status.startsWith("Signaling error")) {
-                            status = "Signaling disconnected."
-                        }
+                }
+
+                if (!isActive || shutdownRequested || disposed || monitorAuthenticationRejected) break
+
+                updateUi {
+                    isBusy = false
+                    sessionActive = true
+                    status = if (connectedAtLeastOnce) {
+                        "Connection interrupted; rediscovering and retrying…"
+                    } else {
+                        "Camera not reachable; retrying…"
+                    }
+                }
+                delay(retryDelayMs)
+                retryDelayMs = MonitorReconnectPolicy.nextDelayMs(retryDelayMs)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } finally {
+            monitorSender = null
+            monitorReconnectRequester = null
+            healthJob?.cancel()
+            healthJob = null
+            runCatching { monitorClient?.close() }
+            monitorClient = null
+            closePeerConnection()
+            if (!shutdownRequested && !disposed) {
+                updateUi {
+                    isBusy = false
+                    sessionActive = false
+                    status = if (monitorAuthenticationRejected) {
+                        "Pairing rejected. Check the Camera QR code and token, then reconnect."
+                    } else {
+                        "Camera connection ended."
                     }
                 }
             }
@@ -324,6 +444,9 @@ class LanWebRtcSession(
 
     fun stopSession() {
         shutdownRequested = true
+        monitorConnectionJob?.cancel()
+        monitorConnectionJob = null
+        monitorReconnectRequester = null
         updateUi {
             isBusy = true
             status = "Stopping session…"
@@ -347,6 +470,9 @@ class LanWebRtcSession(
         if (disposed) return
         disposed = true
         shutdownRequested = true
+        monitorConnectionJob?.cancel()
+        monitorConnectionJob = null
+        monitorReconnectRequester = null
         scope.launch {
             cleanupSession()
             runCatching { peerConnectionFactory?.dispose() }
@@ -462,12 +588,18 @@ class LanWebRtcSession(
                         cameraSender = null
                         outbound.close()
                         writer.cancel()
-                        serverConnectionClaimed.set(false)
                         if (authenticated && !shutdownRequested && !disposed) {
+                            // Keep the single-Monitor gate closed until the previous peer is
+                            // disposed; otherwise a fast retry can race with the new offer.
                             scope.launch {
                                 closePeerConnection()
-                                updateStatus("Monitor disconnected. Waiting for Monitor.")
+                                if (!shutdownRequested && !disposed) {
+                                    updateStatus("Monitor disconnected. Waiting for Monitor.")
+                                }
+                                serverConnectionClaimed.set(false)
                             }
+                        } else {
+                            serverConnectionClaimed.set(false)
                         }
                     }
                 }
@@ -529,8 +661,10 @@ class LanWebRtcSession(
                 }
                 PeerConnection.IceConnectionState.DISCONNECTED ->
                     updateStatus("Transport disconnected; attempting to recover.")
-                PeerConnection.IceConnectionState.FAILED ->
-                    updateStatus("WebRTC connection failed. Stop and reconnect.")
+                PeerConnection.IceConnectionState.FAILED -> {
+                    updateStatus("WebRTC connection failed; reconnecting to the paired Camera.")
+                    if (role == AppRole.MONITOR) monitorReconnectRequester?.invoke()
+                }
                 PeerConnection.IceConnectionState.CLOSED -> Unit
                 else -> updateStatus("Establishing direct LAN media connection…")
             }
@@ -599,7 +733,15 @@ class LanWebRtcSession(
                     }
                 }
             }
-            "error" -> updateStatus("Signaling error: ${message.optString("message", "Unknown error")}")
+            "error" -> {
+                val errorMessage = message.optString("message", "Unknown error")
+                if (role == AppRole.MONITOR &&
+                    errorMessage.contains("invalid pairing token", ignoreCase = true)
+                ) {
+                    monitorAuthenticationRejected = true
+                }
+                updateStatus("Signaling error: $errorMessage")
+            }
         }
     }
 
@@ -708,9 +850,10 @@ class LanWebRtcSession(
             while (isActive && !shutdownRequested && !disposed) {
                 delay(HEALTH_INTERVAL_MS)
                 if (role != AppRole.MONITOR || monitorSender == null) continue
+                val nowMs = SystemClock.elapsedRealtime()
                 val health = VideoFrameHealth.evaluate(
                     lastFrameAtMs = lastRemoteVideoFrameAtMs,
-                    nowMs = SystemClock.elapsedRealtime(),
+                    nowMs = nowMs,
                     stallTimeoutMs = VIDEO_STALL_TIMEOUT_MS,
                 )
                 sendSignal(
@@ -725,6 +868,20 @@ class LanWebRtcSession(
                     updateStatus("Stream interrupted: no decoded video frames for ${health.frameAgeMs} ms.")
                 } else if (peerConnection != null) {
                     updateStatus("Connected; waiting for the first decoded video frame.")
+                }
+
+                val lastFrameAtMs = lastRemoteVideoFrameAtMs
+                val mediaAgeMs = if (lastFrameAtMs > 0L) {
+                    nowMs - lastFrameAtMs
+                } else {
+                    nowMs - monitorConnectionStartedAtMs
+                }
+                if (
+                    peerConnection != null &&
+                    monitorConnectionStartedAtMs > 0L &&
+                    mediaAgeMs >= MonitorReconnectPolicy.MEDIA_STALL_RECONNECT_MS
+                ) {
+                    monitorReconnectRequester?.invoke()
                 }
             }
         }
@@ -788,6 +945,10 @@ class LanWebRtcSession(
         runCatching { audioSource?.dispose() }
         audioSource = null
 
+        monitorTargetHost = null
+        monitorConnectionStartedAtMs = 0L
+        monitorAuthenticationRejected = false
+        serverConnectionClaimed.set(false)
         updateUi {
             sessionActive = false
             isBusy = false

@@ -12,7 +12,7 @@ Lan Monitor is a single native Android app using Kotlin and Jetpack Compose.
 - **Media:** WebRTC carries audio/video directly between peers. No STUN/TURN servers are configured. Capture profile is 640×480 at 15 fps.
 - **Health:** Monitor reports whether decoded video frames have advanced recently. Camera does not claim healthy media based only on ICE state. The three-second decoded-frame timeout policy has deterministic JVM tests.
 - **Discovery:** Camera advertises the stable UUID through Android `NsdManager` using DNS-SD/mDNS; the TXT record includes only the identity and protocol version, never the pairing token. After scanning the QR, Monitor discovers services matching the stable ID, resolves the service, validates its protocol version and private IPv4 address, then updates the connection address. Manual IP and QR address hints remain fallbacks.
-- **Lifecycle/scope limits:** Camera UI must remain open. Discovery address updates are implemented, but automatic media reconnection following IP changes or Wi-Fi loss is not yet implemented. Background/screen-off operation, two Monitors, adaptive quality and movement detection remain future work.
+- **Lifecycle/scope limits:** Camera UI must remain open. Monitor keeps the paired Camera target, retries signaling with bounded exponential backoff, and refreshes its target from validated mDNS results. WebRTC is rebuilt after signaling loss, ICE failure, or a sustained video-frame stall. Recovery is best-effort and remains unverified on physical devices. Background/screen-off operation, two Monitors, adaptive quality and movement detection remain future work.
 
 ## Pairing and identity boundaries
 
@@ -57,6 +57,6 @@ Re-check official compatibility tables before updating pinned versions. The targ
 
 ## Next architecture steps
 
-1. Add lifecycle-safe reconnect after brief Wi-Fi loss and Camera IP changes without rebuilding capture unnecessarily, using the current discovery result while retaining manual fallback.
+1. Verify lifecycle-safe reconnect after brief Wi-Fi loss and Camera IP changes on the target Samsung devices, including recovery time, frame/audio resumption and Stop cleanup.
 2. Add foreground-service-backed monitoring, screen-off behavior, movement detection and notifications.
 3. Add two-Monitor handling, adaptive quality and extended stability/diagnostic tests.
