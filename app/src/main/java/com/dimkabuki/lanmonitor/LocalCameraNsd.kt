@@ -123,6 +123,9 @@ internal class LocalCameraNsd(context: Context) {
                         override fun onServiceResolved(resolved: NsdServiceInfo) {
                             synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
                             if (!isCurrentGeneration(generation)) return
+                            val advertisedVersion = resolved.attributes[ATTRIBUTE_VERSION]
+                                ?.toString(StandardCharsets.UTF_8)
+                            if (advertisedVersion != PROTOCOL_VERSION) return
                             val advertisedId = resolved.attributes[ATTRIBUTE_CAMERA_ID]
                                 ?.toString(StandardCharsets.UTF_8)
                             val address = resolved.host?.hostAddress
@@ -146,8 +149,12 @@ internal class LocalCameraNsd(context: Context) {
             }
 
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                val serviceName = serviceInfo.serviceName
+                if (serviceName != null) {
+                    synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
+                }
                 val expectedPrefix = "lanmonitor-$expectedCameraId"
-                if (serviceInfo.serviceName?.startsWith(expectedPrefix) == true) {
+                if (serviceName?.startsWith(expectedPrefix) == true) {
                     postForGeneration(generation) {
                         onLost()
                         onStatus("Paired Camera advertisement disappeared. Searching for it again…")
