@@ -156,6 +156,9 @@ private fun CameraScreen(onBack: () -> Unit) {
             }
         }
         Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+        if (session.sessionActive) {
+            Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
+        }
         if (session.cameraAddresses.isNotEmpty()) {
             Text("Camera address", style = MaterialTheme.typography.titleMedium)
             Text(session.cameraAddresses.joinToString(separator = "\n"))
