@@ -101,6 +101,11 @@ class MainActivity : ComponentActivity() {
                 darkThemeEnabled = enabled
                 preferences.edit().putBoolean(DARK_THEME_KEY, enabled).apply()
             }
+            val diagnosticLoggingEnabled = DiagnosticLog.enabled.value
+            val diagnosticLogStatusMessage = DiagnosticLog.statusMessage.value
+            val onDiagnosticLoggingChanged: (AppRole, Boolean) -> Unit = { role, enabled ->
+                DiagnosticLog.setEnabled(this@MainActivity, role, enabled)
+            }
 
             SideEffect {
                 val lightSystemBarFlags =
@@ -145,6 +150,9 @@ class MainActivity : ComponentActivity() {
                             },
                             darkThemeEnabled = darkThemeEnabled,
                             onDarkThemeChanged = onDarkThemeChanged,
+                            diagnosticLoggingEnabled = diagnosticLoggingEnabled,
+                            diagnosticLogStatusMessage = diagnosticLogStatusMessage,
+                            onDiagnosticLoggingChanged = onDiagnosticLoggingChanged,
                         )
                         AppRole.MONITOR -> MonitorScreen(
                             onBack = {
@@ -153,6 +161,9 @@ class MainActivity : ComponentActivity() {
                             },
                             darkThemeEnabled = darkThemeEnabled,
                             onDarkThemeChanged = onDarkThemeChanged,
+                            diagnosticLoggingEnabled = diagnosticLoggingEnabled,
+                            diagnosticLogStatusMessage = diagnosticLogStatusMessage,
+                            onDiagnosticLoggingChanged = onDiagnosticLoggingChanged,
                         )
                     }
                 }
@@ -178,6 +189,46 @@ private fun ThemeSwitch(
             onCheckedChange = onDarkThemeChanged,
             modifier = Modifier.semantics { contentDescription = "Dark theme" },
         )
+    }
+}
+
+@Composable
+private fun DiagnosticLoggingControl(
+    role: AppRole,
+    enabled: Boolean,
+    statusMessage: String,
+    onChanged: (AppRole, Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Diagnostic logging",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = enabled,
+                onCheckedChange = { requested -> onChanged(role, requested) },
+                modifier = Modifier.semantics { contentDescription = "Diagnostic logging" },
+            )
+        }
+        Text(
+            statusMessage,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (enabled) {
+            Text(
+                "Logs connection and discovery events only. Pairing secrets, SDP/ICE payloads and media are excluded.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
@@ -225,6 +276,9 @@ private fun CameraScreen(
     onBack: () -> Unit,
     darkThemeEnabled: Boolean,
     onDarkThemeChanged: (Boolean) -> Unit,
+    diagnosticLoggingEnabled: Boolean,
+    diagnosticLogStatusMessage: String,
+    onDiagnosticLoggingChanged: (AppRole, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val session = remember { SessionControllerStore.attachUi(context, AppRole.CAMERA) }
@@ -272,6 +326,12 @@ private fun CameraScreen(
             )
             ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
+        DiagnosticLoggingControl(
+            role = AppRole.CAMERA,
+            enabled = diagnosticLoggingEnabled,
+            statusMessage = diagnosticLogStatusMessage,
+            onChanged = onDiagnosticLoggingChanged,
+        )
         Text("Camera preview", style = MaterialTheme.typography.titleMedium)
         AndroidView(
             factory = { viewContext ->
@@ -358,6 +418,9 @@ private fun MonitorScreen(
     onBack: () -> Unit,
     darkThemeEnabled: Boolean,
     onDarkThemeChanged: (Boolean) -> Unit,
+    diagnosticLoggingEnabled: Boolean,
+    diagnosticLogStatusMessage: String,
+    onDiagnosticLoggingChanged: (AppRole, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -373,12 +436,19 @@ private fun MonitorScreen(
     ) { result ->
         val raw = result.contents
         if (raw.isNullOrBlank()) {
+            DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_scan_cancelled")
             session.showMessage("QR scan cancelled.")
         } else {
             val pairing = CameraPairingCodec.decode(raw)
             if (pairing == null) {
+                DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_rejected", "reason=invalid_or_unsupported_payload")
                 session.showMessage("This QR code is not a valid Lan Monitor pairing code.")
             } else {
+                DiagnosticLog.log(
+                    AppRole.MONITOR,
+                    "pairing_qr_decoded",
+                    "address_hint_count=${pairing.addresses.size}; camera_identity_present=${pairing.cameraId.isNotBlank()}",
+                )
                 host = pairing.addresses.first()
                 token = pairing.token
                 pairedCameraId = pairing.cameraId
@@ -449,6 +519,12 @@ private fun MonitorScreen(
             )
             ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
+        DiagnosticLoggingControl(
+            role = AppRole.MONITOR,
+            enabled = diagnosticLoggingEnabled,
+            statusMessage = diagnosticLogStatusMessage,
+            onChanged = onDiagnosticLoggingChanged,
+        )
         AndroidView(
             factory = { viewContext ->
                 SurfaceViewRenderer(viewContext).also {
@@ -460,6 +536,7 @@ private fun MonitorScreen(
         )
         Button(
             onClick = {
+                DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_scan_requested")
                 if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                     scanLauncher.launch(
                         ScanOptions()

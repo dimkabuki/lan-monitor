@@ -6,6 +6,18 @@ The required status-check context is `build-and-test` in the Android CI workflow
 
 Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
 
+## Opt-in diagnostic logging
+
+- [ ] Fresh install and each cold app launch begin with diagnostic logging disabled.
+- [ ] Turning logging on from the Camera screen creates a `lan-monitor-camera-*.txt` file under `Download/Lan Monitor/` and records the Camera start/stop sequence.
+- [ ] Turning logging on from the Monitor screen creates a `lan-monitor-monitor-*.txt` file under the same folder and records QR scan/decode, NSD discovery, WebSocket attempts, WebRTC states, and retries.
+- [ ] Turning logging off appends a final event, stops further writes and displays the saved file location.
+- [ ] Logs contain timestamps and role/event labels but not pairing tokens, QR payloads, SDP descriptions, raw ICE candidate payloads, audio or video.
+- [ ] Diagnostic file creation/write failures are shown truthfully in the UI and do not crash or stop the monitoring session.
+- [ ] The file-size safety cap is enforced.
+
+Each event is appended to a Downloads text file using Android's Downloads media collection, without broad storage permissions. The log is intended for a short opt-in reproduction, not continuous production telemetry. LAN IP addresses and technical errors may still be sensitive; inspect files before sharing and do not publish them.
+
 ## Physical-device test timing
 
 Per the agreed development workflow, physical verification is a single planned MVP acceptance phase after the core functionality is implemented. Do not block each incremental feature PR waiting for a phone test. Before the MVP phase, mark physical-only criteria **NOT TESTED**; do not infer a pass from CI. If a major implementation issue is discovered earlier, it can still be tested deliberately.

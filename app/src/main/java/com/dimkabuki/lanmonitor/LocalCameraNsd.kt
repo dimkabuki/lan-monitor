@@ -38,7 +38,9 @@ internal class LocalCameraNsd(context: Context) {
         onStatus: (String) -> Unit,
     ) {
         if (closed) return
+        DiagnosticLog.log(AppRole.CAMERA, "nsd_advertise_requested", "port=$port")
         val nsdManager = manager ?: run {
+            DiagnosticLog.log(AppRole.CAMERA, "nsd_advertise_unavailable", "reason=nsd_manager_missing")
             report(onStatus, "Android local network discovery is unavailable. Use QR/manual pairing.")
             return
         }
@@ -53,10 +55,12 @@ internal class LocalCameraNsd(context: Context) {
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
+                DiagnosticLog.log(AppRole.CAMERA, "nsd_advertise_succeeded")
                 report(onStatus, "Local discovery advertised.")
             }
 
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                DiagnosticLog.log(AppRole.CAMERA, "nsd_advertise_failed", "error_code=$errorCode")
                 report(onStatus, "Local discovery unavailable (registration error $errorCode). Use QR/manual pairing.")
             }
 
@@ -65,6 +69,7 @@ internal class LocalCameraNsd(context: Context) {
             }
 
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                DiagnosticLog.log(AppRole.CAMERA, "nsd_unregistration_failed", "error_code=$errorCode")
                 report(onStatus, "Local discovery cleanup failed (error $errorCode).")
             }
         }
@@ -76,7 +81,12 @@ internal class LocalCameraNsd(context: Context) {
                 callbackExecutor,
                 listener,
             )
-        }.onFailure {
+        }.onFailure { error ->
+            DiagnosticLog.log(
+                AppRole.CAMERA,
+                "nsd_advertise_exception",
+                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+            )
             registrationListener = null
             report(onStatus, "Local discovery unavailable. Use QR/manual pairing.")
         }
@@ -89,7 +99,9 @@ internal class LocalCameraNsd(context: Context) {
         onStatus: (String) -> Unit,
     ) {
         if (closed) return
+        DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_requested", "paired_identity_present=${expectedCameraId.isNotBlank()}")
         val nsdManager = manager ?: run {
+            DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_unavailable", "reason=nsd_manager_missing")
             report(onStatus, "Android local network discovery is unavailable. Use the QR address or manual fallback.")
             return
         }
@@ -103,10 +115,12 @@ internal class LocalCameraNsd(context: Context) {
 
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {
+                DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_started", "service_type=$serviceType")
                 reportForGeneration(generation, onStatus, "Searching for paired Camera on the local network…")
             }
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_start_failed", "error_code=$errorCode; service_type=$serviceType")
                 reportForGeneration(generation, onStatus, "Local discovery could not start (error $errorCode). Use the QR address or manual fallback.")
                 runCatching { nsdManager.stopServiceDiscovery(this) }
                 releaseMulticastLock()
@@ -120,11 +134,13 @@ internal class LocalCameraNsd(context: Context) {
                 if (!serviceName.startsWith("lanmonitor-$expectedCameraId")) return
                 val shouldResolve = synchronized(resolvingNames) { resolvingNames.add(serviceName) }
                 if (!shouldResolve) return
+                DiagnosticLog.log(AppRole.MONITOR, "nsd_matching_service_found")
 
                 runCatching {
                     nsdManager.resolveService(serviceInfo, callbackExecutor, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                             synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
+                            DiagnosticLog.log(AppRole.MONITOR, "nsd_service_resolve_failed", "error_code=$errorCode")
                             reportForGeneration(generation, onStatus, "A local Camera advertisement could not be resolved (error $errorCode).")
                         }
 
@@ -133,24 +149,40 @@ internal class LocalCameraNsd(context: Context) {
                             if (!isCurrentGeneration(generation)) return
                             val advertisedVersion = resolved.attributes[ATTRIBUTE_VERSION]
                                 ?.toString(StandardCharsets.UTF_8)
-                            if (advertisedVersion != PROTOCOL_VERSION) return
+                            if (advertisedVersion != PROTOCOL_VERSION) {
+                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_rejected", "reason=protocol_version_mismatch; version=${advertisedVersion ?: "missing"}")
+                                return
+                            }
                             val advertisedId = resolved.attributes[ATTRIBUTE_CAMERA_ID]
                                 ?.toString(StandardCharsets.UTF_8)
                             val address = resolved.host?.hostAddress
+                            DiagnosticLog.log(
+                                AppRole.MONITOR,
+                                "nsd_service_resolved",
+                                "address=${address ?: "missing"}; identity_matches=${advertisedId == expectedCameraId}",
+                            )
                             val selected = CameraDiscoveryPolicy.selectAddress(
                                 expectedCameraId = expectedCameraId,
                                 advertisedCameraId = advertisedId,
                                 candidateAddress = address,
                             )
                             if (selected != null) {
+                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_accepted", "private_ipv4=$selected")
                                 postForGeneration(generation) {
                                     onFound(selected)
                                     onStatus("Paired Camera found at $selected.")
                                 }
+                            } else {
+                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_rejected", "reason=identity_or_private_ipv4_validation_failed; address=${address ?: "missing"}; identity_matches=${advertisedId == expectedCameraId}")
                             }
                         }
                     })
-                }.onFailure {
+                }.onFailure { error ->
+                    DiagnosticLog.log(
+                        AppRole.MONITOR,
+                        "nsd_resolve_exception",
+                        "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                    )
                     synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
                     reportForGeneration(generation, onStatus, "Local Camera lookup failed. Use the QR address or manual fallback.")
                 }
@@ -163,6 +195,7 @@ internal class LocalCameraNsd(context: Context) {
                 }
                 val expectedPrefix = "lanmonitor-$expectedCameraId"
                 if (serviceName?.startsWith(expectedPrefix) == true) {
+                    DiagnosticLog.log(AppRole.MONITOR, "nsd_matching_service_lost")
                     postForGeneration(generation) {
                         onLost()
                         onStatus("Paired Camera advertisement disappeared. Searching for it again…")
@@ -173,6 +206,7 @@ internal class LocalCameraNsd(context: Context) {
             override fun onDiscoveryStopped(serviceType: String) = Unit
 
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_stop_failed", "error_code=$errorCode")
                 reportForGeneration(generation, onStatus, "Local discovery could not stop cleanly (error $errorCode).")
             }
         }
@@ -186,7 +220,12 @@ internal class LocalCameraNsd(context: Context) {
                 NsdManager.PROTOCOL_DNS_SD,
                 listener,
             )
-        }.onFailure {
+        }.onFailure { error ->
+            DiagnosticLog.log(
+                AppRole.MONITOR,
+                "nsd_discovery_exception",
+                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+            )
             discoveryListener = null
             releaseMulticastLock()
             reportForGeneration(generation, onStatus, "Local discovery unavailable. Use the QR address or manual fallback.")
@@ -200,6 +239,7 @@ internal class LocalCameraNsd(context: Context) {
     }
 
     fun stopDiscovery() {
+        if (discoveryListener != null) DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_stopped")
         synchronized(this) { discoveryGeneration += 1 }
         val listener = discoveryListener
         discoveryListener = null

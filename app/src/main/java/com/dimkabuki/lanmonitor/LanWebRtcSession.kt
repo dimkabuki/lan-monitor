@@ -112,6 +112,7 @@ class LanWebRtcSession(
     @Volatile private var cameraSender: ((String) -> Unit)? = null
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
+    @Volatile private var lastLoggedVideoHealth: Boolean? = null
     @Volatile private var lastMovementAnalysisAtMs = 0L
     @Volatile private var movementAnalysisReady = false
     @Volatile private var lastMovementAnalysisError: String? = null
@@ -159,6 +160,13 @@ class LanWebRtcSession(
     private val remoteVideoHealthSink = object : VideoSink {
         override fun onFrame(frame: org.webrtc.VideoFrame) {
             val nowMs = SystemClock.elapsedRealtime()
+            if (lastRemoteVideoFrameAtMs == 0L) {
+                DiagnosticLog.log(
+                    role,
+                    "remote_video_first_frame",
+                    "width=${frame.buffer.width}; height=${frame.buffer.height}",
+                )
+            }
             lastRemoteVideoFrameAtMs = nowMs
             inspectMovementFrame(frame, nowMs)
         }
@@ -251,6 +259,7 @@ class LanWebRtcSession(
 
     fun startCamera() {
         if (role != AppRole.CAMERA || isBusy || sessionActive || disposed) return
+        DiagnosticLog.log(role, "camera_start_requested")
         shutdownRequested = false
         controllerHasWork = true
         updateUi {
@@ -262,6 +271,7 @@ class LanWebRtcSession(
             try {
                 ensurePeerConnectionFactory()
                 startLocalMedia()
+                DiagnosticLog.log(role, "camera_local_media_started", "video_width=$VIDEO_WIDTH; video_height=$VIDEO_HEIGHT; fps=$VIDEO_FPS; audio_track_created=true")
                 val token = PairingToken.generate()
                 val cameraId = CameraIdentityStore.getOrCreate(appContext)
                 startCameraSignalingServer(token)
@@ -269,6 +279,7 @@ class LanWebRtcSession(
                 val nsd = LocalCameraNsd(appContext)
                 localCameraNsd = nsd
                 nsd.startAdvertising(cameraId, SIGNAL_PORT) { message ->
+                    DiagnosticLog.log(AppRole.CAMERA, "camera_discovery_status", message)
                     updateUi { discoveryStatus = message }
                 }
                 val payload = if (addresses.isNotEmpty()) {
@@ -287,6 +298,11 @@ class LanWebRtcSession(
                 } else {
                     ""
                 }
+                DiagnosticLog.log(
+                    role,
+                    "camera_session_ready",
+                    "private_ipv4_addresses=${addresses.distinct().joinToString(",")}; signaling_port=$SIGNAL_PORT; qr_available=${payload.isNotBlank()}",
+                )
                 updateUi {
                     pairingToken = token
                     pairingPayload = payload
@@ -302,6 +318,11 @@ class LanWebRtcSession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
+                DiagnosticLog.log(
+                    role,
+                    "camera_start_failed",
+                    "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                )
                 cleanupSession()
                 updateUi {
                     isBusy = false
@@ -319,12 +340,14 @@ class LanWebRtcSession(
 
     fun discoverPairedCamera(cameraId: String) {
         if (role != AppRole.MONITOR || disposed || shutdownRequested) return
+        DiagnosticLog.log(role, "monitor_discovery_requested", "paired_identity_present=${cameraId.isNotBlank()}")
         discoveredCameraAddress = ""
         discoveryStatus = "Starting local discovery…"
         val nsd = localCameraNsd ?: LocalCameraNsd(appContext).also { localCameraNsd = it }
         nsd.startDiscovery(
             expectedCameraId = cameraId,
             onFound = { address ->
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_discovered", "host=$address")
                 // Keep the latest validated endpoint for the active reconnect loop.
                 monitorTargetHost = address
                 updateUi {
@@ -336,12 +359,14 @@ class LanWebRtcSession(
                 }
             },
             onLost = {
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_advertisement_lost")
                 updateUi {
                     discoveredCameraAddress = ""
                     discoveryStatus = "Paired Camera advertisement was lost; continuing to search."
                 }
             },
             onStatus = { message ->
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_discovery_status", message)
                 updateUi { discoveryStatus = message }
             },
         )
@@ -349,6 +374,7 @@ class LanWebRtcSession(
 
     fun stopCameraDiscovery() {
         if (role != AppRole.MONITOR) return
+        DiagnosticLog.log(role, "monitor_discovery_stopped_by_app")
         runCatching { localCameraNsd?.stopDiscovery() }
         updateUi {
             discoveredCameraAddress = ""
@@ -360,21 +386,25 @@ class LanWebRtcSession(
         if (role != AppRole.MONITOR || isBusy || sessionActive || disposed) return
         val requestedHost = host.trim()
         if (!LocalLanAddress.isPrivateIpv4(requestedHost)) {
+            DiagnosticLog.log(role, "monitor_connect_rejected", "reason=invalid_private_ipv4; entered_host=$requestedHost")
             updateStatus("Enter the Camera's private IPv4 address, for example 192.168.1.20.")
             return
         }
         val requestedToken = token.trim()
         if (requestedToken.isBlank()) {
+            DiagnosticLog.log(role, "monitor_connect_rejected", "reason=empty_pairing_token")
             updateStatus("Enter the pairing token shown on the Camera device.")
             return
         }
 
+        DiagnosticLog.log(role, "monitor_connect_requested", "host=$requestedHost; pairing_token_present=true")
         shutdownRequested = false
         controllerHasWork = true
         movementDetector.reset()
         lastMovementAnalysisAtMs = 0L
         movementAnalysisReady = false
         lastMovementAnalysisError = null
+        lastLoggedVideoHealth = null
         updateUi { movementStatus = "Waiting for Monitor video." }
         runCatching { MovementAlertNotifier.ensureChannel(appContext) }
         monitorTargetHost = requestedHost
@@ -395,6 +425,11 @@ class LanWebRtcSession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
+                DiagnosticLog.log(
+                    role,
+                    "monitor_prepare_failed",
+                    "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                )
                 if (!shutdownRequested && !disposed) {
                     cleanupSession()
                     updateUi {
@@ -416,6 +451,7 @@ class LanWebRtcSession(
     private suspend fun runMonitorConnectionLoop(initialHost: String, token: String) {
         var connectedAtLeastOnce = false
         var retryDelayMs = MonitorReconnectPolicy.INITIAL_DELAY_MS
+        var attemptNumber = 0
 
         try {
             while (
@@ -427,6 +463,12 @@ class LanWebRtcSession(
                 val host = monitorTargetHost
                     ?.takeIf { LocalLanAddress.isPrivateIpv4(it) }
                     ?: initialHost
+                attemptNumber += 1
+                DiagnosticLog.log(
+                    role,
+                    "monitor_connection_attempt",
+                    "attempt=$attemptNumber; host=$host; previous_retry_delay_ms=$retryDelayMs; connected_before=$connectedAtLeastOnce; network=${DiagnosticLog.networkSummary(appContext)}",
+                )
                 updateUi {
                     isBusy = !connectedAtLeastOnce
                     sessionActive = true
@@ -442,7 +484,9 @@ class LanWebRtcSession(
                     val client = HttpClient(ClientCIO) { install(ClientWebSockets) }
                     attemptClient = client
                     monitorClient = client
+                    DiagnosticLog.log(role, "monitor_websocket_connecting", "attempt=$attemptNumber; host=$host; port=$SIGNAL_PORT")
                     client.webSocket(urlString = "ws://$host:$SIGNAL_PORT/signal") {
+                        DiagnosticLog.log(role, "monitor_websocket_opened", "attempt=$attemptNumber; host=$host")
                         val outbound = Channel<String>(Channel.UNLIMITED)
                         val reconnectSignal = Channel<Unit>(Channel.CONFLATED)
                         val sender: (String) -> Unit = { raw ->
@@ -465,6 +509,7 @@ class LanWebRtcSession(
                             )
                             connectedAtLeastOnce = true
                             monitorConnectionStartedAtMs = SystemClock.elapsedRealtime()
+                            DiagnosticLog.log(role, "monitor_join_sent", "attempt=$attemptNumber; join_message_sent=true")
                             updateUi {
                                 isBusy = false
                                 sessionActive = true
@@ -495,6 +540,11 @@ class LanWebRtcSession(
                             outbound.close()
                             writer.cancel()
                         }
+                        DiagnosticLog.log(
+                            role,
+                            "monitor_websocket_loop_ended",
+                            "attempt=$attemptNumber; recovery_requested=$recoveryRequested",
+                        )
                         if (recoveryRequested && !shutdownRequested && !disposed) {
                             updateStatus("Media transport stalled; reconnecting to the paired Camera.")
                         }
@@ -502,6 +552,11 @@ class LanWebRtcSession(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
+                    DiagnosticLog.log(
+                        role,
+                        "monitor_connection_attempt_failed",
+                        "attempt=$attemptNumber; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                    )
                     if (!shutdownRequested && !disposed && !monitorAuthenticationRejected) {
                         updateUi {
                             isBusy = false
@@ -517,6 +572,11 @@ class LanWebRtcSession(
                     // Reset backoff only after media actually flowed. A WebSocket upgrade alone
                     // can be immediately rejected while the Camera is still cleaning up a peer.
                     val hadDecodedFrames = lastRemoteVideoFrameAtMs > 0L
+                    DiagnosticLog.log(
+                        role,
+                        "monitor_connection_attempt_cleanup",
+                        "attempt=$attemptNumber; had_decoded_frames=$hadDecodedFrames",
+                    )
                     if (monitorClient === attemptClient) monitorClient = null
                     runCatching { attemptClient?.close() }
                     monitorSender = null
@@ -545,6 +605,7 @@ class LanWebRtcSession(
                         "Camera not reachable; retrying…"
                     }
                 }
+                DiagnosticLog.log(role, "monitor_retry_scheduled", "attempt=$attemptNumber; delay_ms=$retryDelayMs")
                 delay(retryDelayMs)
                 retryDelayMs = MonitorReconnectPolicy.nextDelayMs(retryDelayMs)
             }
@@ -559,6 +620,11 @@ class LanWebRtcSession(
             monitorClient = null
             closePeerConnection()
             if (!shutdownRequested && !disposed) {
+                DiagnosticLog.log(
+                    role,
+                    "monitor_connection_loop_ended",
+                    "pairing_rejected=$monitorAuthenticationRejected",
+                )
                 val terminalStatus = if (monitorAuthenticationRejected) {
                     "Pairing rejected. Check the Camera QR code and token, then reconnect."
                 } else {
@@ -579,6 +645,7 @@ class LanWebRtcSession(
 
     private fun stopSessionWithStatus(finalStatus: String) {
         if (shutdownRequested || disposed || !controllerHasWork) return
+        DiagnosticLog.log(role, "session_stop_requested", "reason=$finalStatus")
         shutdownRequested = true
         ActiveSessionRegistry.unregister(this)
         val startupJob = cameraStartJob
@@ -607,6 +674,7 @@ class LanWebRtcSession(
                 discoveredCameraAddress = ""
                 status = finalStatus
             }
+            DiagnosticLog.log(role, "session_stop_completed", "result=$finalStatus")
             SessionControllerStore.onSessionEnded(this@LanWebRtcSession)
         }
     }
@@ -657,8 +725,10 @@ class LanWebRtcSession(
     }
 
     private fun beginForegroundExecution(): Boolean {
+        DiagnosticLog.log(role, "foreground_execution_requested")
         val admissionError = SessionControllerStore.admissionError(this)
         if (admissionError != null) {
+            DiagnosticLog.log(role, "foreground_execution_rejected", "reason=session_admission; message=$admissionError")
             controllerHasWork = false
             shutdownRequested = true
             updateUi {
@@ -674,7 +744,11 @@ class LanWebRtcSession(
             onFailure = { message -> stopSessionWithStatus(message) },
         )
         val error = SessionForegroundService.start(appContext, role)
-        if (error == null) return true
+        if (error == null) {
+            DiagnosticLog.log(role, "foreground_service_started")
+            return true
+        }
+        DiagnosticLog.log(role, "foreground_service_start_failed", "message=$error")
 
         ActiveSessionRegistry.unregister(this)
         controllerHasWork = false
@@ -766,6 +840,7 @@ class LanWebRtcSession(
     }
 
     private fun startCameraSignalingServer(token: String) {
+        DiagnosticLog.log(role, "camera_signaling_server_starting", "port=$SIGNAL_PORT")
         cameraServer = embeddedServer(
             factory = ServerCIO,
             host = "0.0.0.0",
@@ -775,14 +850,18 @@ class LanWebRtcSession(
             routing {
                 webSocket("/signal") {
                     // The listener binds all interfaces, but accepts only RFC 1918/link-local IPv4 peers.
-                    if (!LocalLanAddress.isPrivateIpv4(call.request.local.remoteHost)) {
+                    val remoteHost = call.request.local.remoteHost
+                    if (!LocalLanAddress.isPrivateIpv4(remoteHost)) {
+                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=non_private_ipv4; remote_host=$remoteHost")
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
                         return@webSocket
                     }
                     if (!serverConnectionClaimed.compareAndSet(false, true)) {
+                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=monitor_already_claimed; remote_host=$remoteHost")
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Only one Monitor is supported in M2"))
                         return@webSocket
                     }
+                    DiagnosticLog.log(role, "camera_socket_opened", "remote_host=$remoteHost")
 
                     val outbound = Channel<String>(Channel.UNLIMITED)
                     val sender: (String) -> Unit = { raw ->
@@ -800,6 +879,7 @@ class LanWebRtcSession(
                             val message = try {
                                 JSONObject(frame.readText())
                             } catch (_: Exception) {
+                                DiagnosticLog.log(role, "camera_signaling_message_malformed")
                                 outbound.trySend(JSONObject().put("type", "error").put("message", "Malformed signaling message.").toString())
                                 continue
                             }
@@ -809,11 +889,13 @@ class LanWebRtcSession(
                                 val isValidJoin = message.optString("type") == "join" &&
                                     PairingToken.matches(token, suppliedToken)
                                 if (!isValidJoin) {
+                                    DiagnosticLog.log(role, "camera_pairing_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
                                     break
                                 }
                                 authenticated = true
+                                DiagnosticLog.log(role, "camera_pairing_accepted", "remote_host=$remoteHost")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
                                 updateStatus("Monitor paired; negotiating WebRTC.")
                                 scope.launch { createCameraOffer() }
@@ -824,10 +906,16 @@ class LanWebRtcSession(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Throwable) {
+                        DiagnosticLog.log(
+                            role,
+                            "camera_signaling_socket_error",
+                            "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                        )
                         if (!shutdownRequested && !disposed) {
                             updateStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
                         }
                     } finally {
+                        DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_host=$remoteHost")
                         cameraSender = null
                         outbound.close()
                         writer.cancel()
@@ -848,9 +936,11 @@ class LanWebRtcSession(
                 }
             }
         }.start(wait = false)
+        DiagnosticLog.log(role, "camera_signaling_server_started", "port=$SIGNAL_PORT")
     }
 
     private fun createCameraOffer() {
+        DiagnosticLog.log(role, "webrtc_offer_creation_started")
         try {
             resetDescriptionState()
             val connection = createPeerConnection(isCamera = true)
@@ -860,21 +950,33 @@ class LanWebRtcSession(
                         connection.setLocalDescription(
                             createSdpObserver(
                                 onSetSuccess = { publishLocalDescription("offer", description) },
-                                onFailure = { updateStatus("Could not set local offer: $it") },
+                                onFailure = {
+                                    DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "error=$it")
+                                    updateStatus("Could not set local offer: $it")
+                                },
                             ),
                             description,
                         )
                     },
-                    onFailure = { updateStatus("Could not create offer: $it") },
+                    onFailure = {
+                        DiagnosticLog.log(role, "webrtc_offer_creation_failed", "error=$it")
+                        updateStatus("Could not create offer: $it")
+                    },
                 ),
                 MediaConstraints(),
             )
         } catch (error: Throwable) {
+            DiagnosticLog.log(
+                role,
+                "webrtc_offer_start_failed",
+                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+            )
             updateStatus("Could not start WebRTC offer: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
     private fun createPeerConnection(isCamera: Boolean): PeerConnection {
+        DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera")
         closePeerConnection()
         resetDescriptionState()
         val factory = peerConnectionFactory ?: error("WebRTC is not initialized")
@@ -890,9 +992,12 @@ class LanWebRtcSession(
     }
 
     private fun peerConnectionObserver() = object : PeerConnection.Observer {
-        override fun onSignalingChange(newState: PeerConnection.SignalingState) = Unit
+        override fun onSignalingChange(newState: PeerConnection.SignalingState) {
+            DiagnosticLog.log(role, "webrtc_signaling_state", "state=$newState")
+        }
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
+            DiagnosticLog.log(role, "webrtc_ice_connection_state", "state=$newState")
             when (newState) {
                 PeerConnection.IceConnectionState.CONNECTED,
                 PeerConnection.IceConnectionState.COMPLETED -> {
@@ -913,10 +1018,16 @@ class LanWebRtcSession(
             }
         }
 
-        override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
-        override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) = Unit
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "receiving=$receiving")
+        }
+        override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {
+            DiagnosticLog.log(role, "webrtc_ice_gathering_state", "state=$newState")
+        }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            val candidateType = candidate.sdp.substringAfter(" typ ", "unknown").substringBefore(' ')
+            DiagnosticLog.log(role, "webrtc_local_ice_candidate", "type=$candidateType; mid_present=${candidate.sdpMid != null}; line=${candidate.sdpMLineIndex}")
             val shouldSend: Boolean
             synchronized(candidateLock) {
                 shouldSend = localDescriptionSignaled
@@ -950,6 +1061,7 @@ class LanWebRtcSession(
     }
 
     private fun attachRemoteAudioTrack(track: AudioTrack) {
+        DiagnosticLog.log(role, "webrtc_remote_audio_track_received")
         synchronized(remoteAudioLock) {
             remoteAudioTrack = track
             track.setEnabled(!remoteAudioMuteState.isMuted)
@@ -957,6 +1069,7 @@ class LanWebRtcSession(
     }
 
     private fun attachRemoteVideoTrack(track: VideoTrack) {
+        DiagnosticLog.log(role, "webrtc_remote_video_track_received")
         if (remoteVideoTrack !== track) {
             remoteVideoTrack?.removeSink(remoteVideoHealthSink)
             remoteRenderer?.let { renderer -> remoteVideoTrack?.removeSink(renderer) }
@@ -969,7 +1082,11 @@ class LanWebRtcSession(
     }
 
     private fun handleSignalMessage(message: JSONObject) {
-        when (message.optString("type")) {
+        val signalType = message.optString("type", "unknown")
+        if (signalType != "health" && signalType != "candidate") {
+            DiagnosticLog.log(role, "signaling_message_received", "type=$signalType")
+        }
+        when (signalType) {
             "ready" -> updateStatus("Pairing accepted; waiting for media negotiation.")
             "offer" -> handleRemoteOffer(message.optString("sdp"))
             "answer" -> handleRemoteAnswer(message.optString("sdp"))
@@ -990,13 +1107,18 @@ class LanWebRtcSession(
                 ) {
                     monitorAuthenticationRejected = true
                 }
+                DiagnosticLog.log(role, "signaling_peer_error", "message=$errorMessage")
                 updateStatus("Signaling error: $errorMessage")
             }
         }
     }
 
     private fun handleRemoteOffer(sdp: String) {
-        if (role != AppRole.MONITOR || sdp.isBlank()) return
+        if (role != AppRole.MONITOR || sdp.isBlank()) {
+            DiagnosticLog.log(role, "webrtc_offer_rejected", "reason=wrong_role_or_empty_sdp")
+            return
+        }
+        DiagnosticLog.log(role, "webrtc_remote_offer_received")
         try {
             val connection = createPeerConnection(isCamera = false)
             val offer = SessionDescription(SessionDescription.Type.OFFER, sdp)
@@ -1010,36 +1132,60 @@ class LanWebRtcSession(
                                     connection.setLocalDescription(
                                         createSdpObserver(
                                             onSetSuccess = { publishLocalDescription("answer", answer) },
-                                            onFailure = { updateStatus("Could not set local answer: $it") },
+                                            onFailure = {
+                                                DiagnosticLog.log(role, "webrtc_answer_set_local_failed", "error=$it")
+                                                updateStatus("Could not set local answer: $it")
+                                            },
                                         ),
                                         answer,
                                     )
                                 },
-                                onFailure = { updateStatus("Could not create answer: $it") },
+                                onFailure = {
+                                    DiagnosticLog.log(role, "webrtc_answer_creation_failed", "error=$it")
+                                    updateStatus("Could not create answer: $it")
+                                },
                             ),
                             MediaConstraints(),
                         )
                     },
-                    onFailure = { updateStatus("Could not accept Camera offer: $it") },
+                    onFailure = {
+                        DiagnosticLog.log(role, "webrtc_remote_offer_rejected", "error=$it")
+                        updateStatus("Could not accept Camera offer: $it")
+                    },
                 ),
                 offer,
             )
             updateStatus("Offer received; preparing answer.")
         } catch (error: Throwable) {
+            DiagnosticLog.log(
+                role,
+                "webrtc_remote_offer_handling_failed",
+                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+            )
             updateStatus("Could not handle offer: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
     private fun handleRemoteAnswer(sdp: String) {
-        if (role != AppRole.CAMERA || sdp.isBlank()) return
-        val connection = peerConnection ?: return
+        if (role != AppRole.CAMERA || sdp.isBlank()) {
+            DiagnosticLog.log(role, "webrtc_answer_rejected", "reason=wrong_role_or_empty_sdp")
+            return
+        }
+        DiagnosticLog.log(role, "webrtc_remote_answer_received")
+        val connection = peerConnection ?: run {
+            DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "reason=peer_connection_missing")
+            return
+        }
         connection.setRemoteDescription(
             createSdpObserver(
                 onSetSuccess = {
                     markRemoteDescriptionSet()
                     updateStatus("Answer accepted; confirming media progress.")
                 },
-                onFailure = { updateStatus("Could not accept Monitor answer: $it") },
+                onFailure = {
+                    DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "error=$it")
+                    updateStatus("Could not accept Monitor answer: $it")
+                },
             ),
             SessionDescription(SessionDescription.Type.ANSWER, sdp),
         )
@@ -1047,7 +1193,12 @@ class LanWebRtcSession(
 
     private fun handleRemoteCandidate(message: JSONObject) {
         val candidateText = message.optString("candidate")
-        if (candidateText.isBlank()) return
+        if (candidateText.isBlank()) {
+            DiagnosticLog.log(role, "webrtc_remote_ice_candidate_rejected", "reason=empty_candidate")
+            return
+        }
+        val candidateType = candidateText.substringAfter(" typ ", "unknown").substringBefore(' ')
+        DiagnosticLog.log(role, "webrtc_remote_ice_candidate", "type=$candidateType; mid_present=${message.optString("sdpMid").isNotBlank()}")
         val mid = message.optString("sdpMid").takeIf { it.isNotBlank() }
         val candidate = IceCandidate(mid, message.optInt("sdpMLineIndex", 0), candidateText)
         val shouldAdd: Boolean
@@ -1069,6 +1220,7 @@ class LanWebRtcSession(
     }
 
     private fun publishLocalDescription(type: String, description: SessionDescription) {
+        DiagnosticLog.log(role, "webrtc_local_description_ready", "type=$type")
         val candidates: List<IceCandidate>
         synchronized(candidateLock) {
             localDescriptionSignaled = true
@@ -1112,6 +1264,14 @@ class LanWebRtcSession(
                         .put("videoHealthy", health.isHealthy)
                         .put("lastFrameAgeMs", health.frameAgeMs ?: -1L),
                 )
+                if (lastLoggedVideoHealth != health.isHealthy) {
+                    lastLoggedVideoHealth = health.isHealthy
+                    DiagnosticLog.log(
+                        role,
+                        "monitor_video_health_changed",
+                        "healthy=${health.isHealthy}; frame_age_ms=${health.frameAgeMs ?: -1L}",
+                    )
+                }
                 if (health.isHealthy) {
                     updateStatus("Streaming: decoded video frames are advancing.")
                 } else if (health.frameAgeMs != null) {
@@ -1131,6 +1291,11 @@ class LanWebRtcSession(
                     monitorConnectionStartedAtMs > 0L &&
                     mediaAgeMs >= MonitorReconnectPolicy.MEDIA_STALL_RECONNECT_MS
                 ) {
+                    DiagnosticLog.log(
+                        role,
+                        "monitor_media_stall_reconnect_requested",
+                        "media_age_ms=$mediaAgeMs; timeout_ms=${MonitorReconnectPolicy.MEDIA_STALL_RECONNECT_MS}",
+                    )
                     monitorReconnectRequester?.invoke()
                 }
             }
