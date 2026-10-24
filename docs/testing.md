@@ -80,6 +80,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 ### 6. Cleanup and resilience
 
 - [ ] Camera capture/signaling stops promptly when requested.
+- [ ] A Camera media-startup failure after partial resource creation stops any attempted capture, releases created WebRTC resources, clears active state and does not leave the foreground notification running.
 - [ ] Monitor detects stopped/missing video frames within 3 seconds and does not remain marked healthy.
 - [ ] Stop, navigating Back, swiping the app away from Recents, and Close all have the documented lifecycle behavior.
 - [ ] No ongoing service notification, wake lock, socket or media capture is left behind after stop, when these features are implemented.

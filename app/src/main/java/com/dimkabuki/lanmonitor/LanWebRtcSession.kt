@@ -612,32 +612,72 @@ class LanWebRtcSession(
 
     private suspend fun startLocalMedia() {
         val factory = peerConnectionFactory ?: error("WebRTC is not initialized")
-        val enumerator = Camera2Enumerator(appContext)
-        val cameraName = enumerator.deviceNames.firstOrNull { enumerator.isBackFacing(it) }
-            ?: error("No rear camera is available on this device.")
-        val capturer = enumerator.createCapturer(cameraName, null)
-            ?: error("Could not initialize the rear camera.")
-        val helper = SurfaceTextureHelper.create("LanMonitorCameraCapture", eglBase.eglBaseContext)
-            ?: error("Could not initialize the camera texture helper.")
-        val source = factory.createVideoSource(false)
-        capturer.initialize(helper, appContext, source.capturerObserver)
-        capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+        var createdCapturer: CameraVideoCapturer? = null
+        var createdHelper: SurfaceTextureHelper? = null
+        var createdSource: VideoSource? = null
+        var createdVideoTrack: VideoTrack? = null
+        var createdAudioSource: org.webrtc.AudioSource? = null
+        var createdAudioTrack: AudioTrack? = null
+        var captureStartAttempted = false
+        var ownershipTransferred = false
 
-        val videoTrack = factory.createVideoTrack("lan-monitor-video", source).apply {
-            setEnabled(true)
-        }
-        val newAudioSource = factory.createAudioSource(MediaConstraints())
-        val audioTrack = factory.createAudioTrack("lan-monitor-audio", newAudioSource).apply {
-            setEnabled(true)
-        }
+        try {
+            val enumerator = Camera2Enumerator(appContext)
+            val cameraName = enumerator.deviceNames.firstOrNull { enumerator.isBackFacing(it) }
+                ?: error("No rear camera is available on this device.")
+            val capturer = enumerator.createCapturer(cameraName, null)
+                ?: error("Could not initialize the rear camera.")
+            createdCapturer = capturer
 
-        cameraCapturer = capturer
-        surfaceTextureHelper = helper
-        videoSource = source
-        localVideoTrack = videoTrack
-        audioSource = newAudioSource
-        localAudioTrack = audioTrack
-        localRenderer?.let(videoTrack::addSink)
+            val helper = SurfaceTextureHelper.create("LanMonitorCameraCapture", eglBase.eglBaseContext)
+                ?: error("Could not initialize the camera texture helper.")
+            createdHelper = helper
+
+            val source = factory.createVideoSource(false)
+            createdSource = source
+            capturer.initialize(helper, appContext, source.capturerObserver)
+            // Mark this before the call: startCapture() can fail after partially acquiring the camera.
+            captureStartAttempted = true
+            capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+
+            val videoTrack = factory.createVideoTrack("lan-monitor-video", source).apply {
+                setEnabled(true)
+            }
+            createdVideoTrack = videoTrack
+            val audioSource = factory.createAudioSource(MediaConstraints())
+            createdAudioSource = audioSource
+            val audioTrack = factory.createAudioTrack("lan-monitor-audio", audioSource).apply {
+                setEnabled(true)
+            }
+            createdAudioTrack = audioTrack
+
+            localRenderer?.let(videoTrack::addSink)
+
+            // Publish ownership only after every startup step above has succeeded. If any step
+            // throws, the finally block releases every resource created by this attempt.
+            cameraCapturer = capturer
+            surfaceTextureHelper = helper
+            videoSource = source
+            localVideoTrack = videoTrack
+            this.audioSource = audioSource
+            localAudioTrack = audioTrack
+            ownershipTransferred = true
+        } finally {
+            if (!ownershipTransferred) {
+                localRenderer?.let { renderer ->
+                    runCatching { createdVideoTrack?.removeSink(renderer) }
+                }
+                if (captureStartAttempted) {
+                    runCatching { createdCapturer?.stopCapture() }
+                }
+                runCatching { createdAudioTrack?.dispose() }
+                runCatching { createdAudioSource?.dispose() }
+                runCatching { createdVideoTrack?.dispose() }
+                runCatching { createdSource?.dispose() }
+                runCatching { createdHelper?.dispose() }
+                runCatching { createdCapturer?.dispose() }
+            }
+        }
     }
 
     private fun startCameraSignalingServer(token: String) {
