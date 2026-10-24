@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.11  
+**Version:** 1.12  
 **Date:** 2026-10-24  
-**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery and initial signaling/WebRTC recovery are merged. PR #8 added typed foreground-service scaffolding; PR #9 adds a process-level controller store shared by the UI and service. Process-death recovery and consolidated physical-device acceptance remain pending.  
+**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery, signaling/WebRTC recovery and the PR #8–#9 lifecycle baseline are merged. The current lifecycle hardening makes Camera media-resource acquisition transactional: startup failures release partially created resources. Process-death recovery and consolidated physical-device acceptance remain pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -53,7 +53,7 @@ The initial M2 implementation was merged through [PR #3](https://github.com/dimk
 - Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
 - The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
 - QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. After Monitor scans a QR, it validates service identity/version and private IPv4 before updating the target; the token is never broadcast in discovery. Active-session recovery retries signaling with bounded exponential backoff and rebuilds WebRTC after ICE failure or a sustained frame stall; the 15-second recovery target still requires physical validation.
-- PR #8 introduced typed Camera/Monitor foreground services, an ongoing Stop notification, contextual notification-permission requests and stop-on-task-removal behavior. PR #9 moves controller retention into a process-level store: the foreground service holds a strong reference and screen disposal detaches only the renderer. The same in-memory session can be reattached after Activity recreation while the process/service remain alive. Controller state is not persisted across process death, and the service is `START_NOT_STICKY`; background/screen-off behavior remains subject to physical validation.
+- PR #8 introduced typed Camera/Monitor foreground services, an ongoing Stop notification, contextual notification-permission requests and stop-on-task-removal behavior. PR #9 moves controller retention into a process-level store: the foreground service holds a strong reference and screen disposal detaches only the renderer. The same in-memory session can be reattached after Activity recreation while the process/service remain alive. Controller state is not persisted across process death, and the service is `START_NOT_STICKY`; background/screen-off behavior remains subject to physical validation. Camera media-resource acquisition is transactional: failures before ownership transfer stop any attempted capture and dispose partially created tracks, sources, helpers and capturer resources.
 - The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
 ### 3.1. Media and network boundaries
