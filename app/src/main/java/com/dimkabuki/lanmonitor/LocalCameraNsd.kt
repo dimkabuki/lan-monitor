@@ -122,7 +122,7 @@ internal class LocalCameraNsd(context: Context) {
                 if (!shouldResolve) return
 
                 runCatching {
-                    nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                    nsdManager.resolveService(serviceInfo, callbackExecutor, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                             synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
                             reportForGeneration(generation, onStatus, "A local Camera advertisement could not be resolved (error $errorCode).")
@@ -178,10 +178,12 @@ internal class LocalCameraNsd(context: Context) {
         }
         discoveryListener = listener
         runCatching {
+            // The String/Executor overload is not available on every supported SDK level.
+            // The legacy discovery overload is compatible with API 33; subsequent resolution
+            // callbacks use the executor overload where it exists.
             nsdManager.discoverServices(
                 SERVICE_TYPE,
                 NsdManager.PROTOCOL_DNS_SD,
-                callbackExecutor,
                 listener,
             )
         }.onFailure {
