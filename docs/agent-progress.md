@@ -5,7 +5,7 @@
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
 - **Current `main` head:** `540491410e651c47139df1faacfe9ce5f8e7e6d9`, merged [PR #7](https://github.com/dimkabuki/lan-monitor/pull/7).
 - **Main CI:** post-merge Android CI [run #40049422554](https://github.com/dimkabuki/lan-monitor/actions/runs/40049422554) passed on current `main`.
-- **Active branch:** `feat/m4-foreground-services`; foreground-service code is on the branch while PR and CI are pending.
+- **Active PR:** [PR #8 — foreground service lifecycle](https://github.com/dimkabuki/lan-monitor/pull/8), branch `feat/m4-foreground-services`. Required CI passed on pre-test commit `ae31700ed580a30e36545171261352a58d94d19b` in [run #40050144068](https://github.com/dimkabuki/lan-monitor/actions/runs/40050144068); final-head CI must be checked after added bridge tests.
 - **Latest required CI:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. The required `build-and-test` job passed; the optional APK job was correctly skipped for a PR event. Run #39 failed on Android NSD API mismatches; those were corrected, and run #41 passed.
 - **Local discovery implementation in PR #6:**
   - `LocalCameraNsd` advertises `_lanmonitor._tcp.` with stable Camera UUID and protocol version in DNS-SD TXT data; no temporary pairing token is broadcast.
@@ -21,4 +21,4 @@
 - **M0/M1/M2 and QR pairing:** implementation and CI baseline are merged. M2's live-media acceptance remains physically unverified and is deferred to the consolidated MVP phase.
 - **Repository policy:** feature branches and PRs only; never commit directly to `main`, force-push, or merge PRs automatically. Required CI context is `build-and-test`; squash-only merge is configured; automatic deletion of merged branches is enabled.
 - **Build baseline:** JDK 17; Gradle Wrapper 8.14.6; Android Gradle Plugin 8.13.2; Kotlin Gradle plugin 2.4.21; compile/target SDK 36; min SDK 33; WebRTC `150.7871.01`; Ktor `3.6.0`; ZXing Android Embedded `4.3.0`.
-- **Next step:** open the foreground-service PR, inspect required CI on its live head, and review permission/start/stop cleanup. Device checks remain grouped for MVP acceptance; do not merge PRs automatically.
+- **Next step:** verify required CI on the final PR #8 head, review permission/start/stop cleanup, and wait for owner review/merge. Device checks remain grouped for MVP acceptance; do not merge PRs automatically.
