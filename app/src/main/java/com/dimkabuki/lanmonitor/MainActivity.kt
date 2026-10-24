@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 var selectedRole by rememberSaveable { mutableStateOf<AppRole?>(null) }
                 BackHandler(enabled = selectedRole != null) {
-                    selectedRole?.let(SessionControllerStore::stopIfActive)
+                    selectedRole?.let { SessionControllerStore.stopIfActive(it) }
                     selectedRole = null
                 }
                 Surface(modifier = Modifier.fillMaxSize()) {
