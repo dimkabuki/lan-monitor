@@ -28,6 +28,8 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
   - Samsung Galaxy S25, Android 16 / One UI 8.5.
 - Both devices must support both roles. Test both assignments: S20 FE as Camera/S25 as Monitor, and S25 as Camera/S20 FE as Monitor.
 - Minimum OS for this project is Android 13 / API 33, unless a concrete dependency limitation is documented. Choose currently supported stable Kotlin, Android Gradle Plugin, Gradle, Jetpack Compose and WebRTC versions; pin versions and document them.
+- Verify current Android SDK and target-SDK requirements before selecting `targetSdk`. If targeting API 37 or later, implement the Android 17+ `ACCESS_LOCAL_NETWORK` permission flow where applicable, and guard version-specific behavior at runtime. Do not call APIs or request permissions that do not exist on an older OS version.
+
 ### 2.1. Appearance and launcher identity
 
 - The app uses a custom dark Material 3 color scheme by default, independently of the Android system theme.
@@ -35,8 +37,6 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
 - A light theme is supported as an explicit user choice. System-theme synchronization is intentionally out of scope for now.
 - Android status/navigation bar icon contrast follows the selected app theme.
 - The launcher uses an adaptive vector icon depicting overlapping screens with colorful wireless/mirroring accents.
-
-- Verify current Android SDK and target-SDK requirements before selecting `targetSdk`. If targeting API 37 or later, implement the Android 17+ `ACCESS_LOCAL_NETWORK` permission flow where applicable, and guard version-specific behavior at runtime. Do not call APIs or request permissions that do not exist on an older OS version.
 
 ## 3. Architecture and technology
 
