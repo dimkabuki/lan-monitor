@@ -84,6 +84,10 @@ class LanWebRtcSession(
         private set
     var pairingPayload by androidx.compose.runtime.mutableStateOf("")
         private set
+    var discoveryStatus by androidx.compose.runtime.mutableStateOf("Not active")
+        private set
+    var discoveredCameraAddress by androidx.compose.runtime.mutableStateOf("")
+        private set
 
     @Volatile private var disposed = false
     @Volatile private var shutdownRequested = false
@@ -95,6 +99,7 @@ class LanWebRtcSession(
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var cameraServer: EmbeddedServer<*, *>? = null
+    private var localCameraNsd: LocalCameraNsd? = null
     private var monitorClient: HttpClient? = null
     private var monitorConnectionJob: Job? = null
     private var healthJob: Job? = null
@@ -157,13 +162,19 @@ class LanWebRtcSession(
                 ensurePeerConnectionFactory()
                 startLocalMedia()
                 val token = PairingToken.generate()
+                val cameraId = CameraIdentityStore.getOrCreate(appContext)
                 startCameraSignalingServer(token)
                 val addresses = LocalLanAddress.privateIpv4Addresses()
+                val nsd = LocalCameraNsd(appContext)
+                localCameraNsd = nsd
+                nsd.startAdvertising(cameraId, SIGNAL_PORT) { message ->
+                    updateUi { discoveryStatus = message }
+                }
                 val payload = if (addresses.isNotEmpty()) {
                     runCatching {
                         CameraPairingCodec.encode(
                             CameraPairingPayload(
-                                cameraId = CameraIdentityStore.getOrCreate(appContext),
+                                cameraId = cameraId,
                                 addresses = addresses.distinct().take(8),
                                 port = SIGNAL_PORT,
                                 token = token,
@@ -179,6 +190,7 @@ class LanWebRtcSession(
                     pairingToken = token
                     pairingPayload = payload
                     cameraAddresses = addresses
+                    discoveryStatus = "Advertising local Camera identity…"
                     sessionActive = true
                     isBusy = false
                     status = if (addresses.isEmpty()) {
@@ -195,9 +207,43 @@ class LanWebRtcSession(
                     pairingPayload = ""
                     pairingToken = ""
                     cameraAddresses = emptyList()
+                    discoveryStatus = "Not active"
                     status = "Could not start Camera: ${error.message ?: error.javaClass.simpleName}"
                 }
             }
+        }
+    }
+
+    fun discoverPairedCamera(cameraId: String) {
+        if (role != AppRole.MONITOR || disposed || shutdownRequested) return
+        discoveredCameraAddress = ""
+        discoveryStatus = "Starting local discovery…"
+        val nsd = localCameraNsd ?: LocalCameraNsd(appContext).also { localCameraNsd = it }
+        nsd.startDiscovery(
+            expectedCameraId = cameraId,
+            onFound = { address ->
+                updateUi {
+                    discoveredCameraAddress = address
+                    discoveryStatus = "Paired Camera found at $address."
+                }
+            },
+            onLost = {
+                updateUi {
+                    discoveryStatus = "Paired Camera advertisement was lost; continuing to search."
+                }
+            },
+            onStatus = { message ->
+                updateUi { discoveryStatus = message }
+            },
+        )
+    }
+
+    fun stopCameraDiscovery() {
+        if (role != AppRole.MONITOR) return
+        runCatching { localCameraNsd?.stopDiscovery() }
+        updateUi {
+            discoveredCameraAddress = ""
+            discoveryStatus = "Stopped"
         }
     }
 
@@ -290,6 +336,8 @@ class LanWebRtcSession(
                 cameraAddresses = emptyList()
                 pairingToken = ""
                 pairingPayload = ""
+                discoveryStatus = "Stopped"
+                discoveredCameraAddress = ""
                 status = "Stopped."
             }
         }
@@ -717,6 +765,8 @@ class LanWebRtcSession(
         healthJob = null
         runCatching { monitorClient?.close() }
         monitorClient = null
+        runCatching { localCameraNsd?.close() }
+        localCameraNsd = null
         runCatching { cameraServer?.stop(500, 1_000) }
         cameraServer = null
         monitorSender = null
