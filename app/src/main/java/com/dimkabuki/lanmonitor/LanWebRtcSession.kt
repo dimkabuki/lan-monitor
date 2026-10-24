@@ -190,7 +190,6 @@ class LanWebRtcSession(
                     pairingToken = token
                     pairingPayload = payload
                     cameraAddresses = addresses
-                    discoveryStatus = "Advertising local Camera identity…"
                     sessionActive = true
                     isBusy = false
                     status = if (addresses.isEmpty()) {
