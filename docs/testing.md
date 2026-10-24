@@ -4,7 +4,7 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, and movement confirmation/brightness compensation/cooldown policy. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
 
 ## Physical-device test timing
 
@@ -51,7 +51,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 ### 3. Audio/video and truthfulness
 
 - [ ] Live video is visible on Monitor and decoded frame progress advances.
-- [ ] Remote microphone audio is audible; Monitor mute/unmute control works once implemented.
+- [ ] Remote microphone audio is audible; Monitor mute/unmute disables and restores Monitor playback without disconnecting video or restarting the session.
 - [ ] Camera does not report Streaming from ICE state alone.
 - [ ] Stop Monitoring and Stop Session close their connection/capture paths and clear active UI state.
 - [ ] Recreating the Activity while an active session is running reuses the same controller and does not silently stop the session; the renderer reattaches.
@@ -76,7 +76,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 
 - [ ] Monitor remains active after switching to another app, with its ongoing foreground-service notification shown when notification permission permits it.
 - [ ] Monitor continues to receive/analyze frames while the screen is off, to the extent allowed by Android/Samsung policies.
-- [ ] While Monitor is active and foregrounded, its screen stays awake.
+- [ ] While Monitor is active and foregrounded, its screen stays awake. When monitoring stops or the Monitor screen is disposed, normal screen-timeout behavior resumes.
 - [ ] Confirmed motion creates a normal Android notification; notification permission denial is explained clearly.
 - [ ] No more than one notification is sent within the 8-second cooldown.
 - [ ] In stable static conditions, no more than one false movement notification occurs in 30 minutes; record lighting and test conditions.
@@ -88,7 +88,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] A Camera media-startup failure after partial resource creation stops any attempted capture, releases created WebRTC resources, clears active state and does not leave the foreground notification running.
 - [ ] Monitor detects stopped/missing video frames within 3 seconds and does not remain marked healthy.
 - [ ] Stop, navigating Back, swiping the app away from Recents, and Close all have the documented lifecycle behavior.
-- [ ] No ongoing service notification, wake lock, socket or media capture is left behind after stop, when these features are implemented.
+- [ ] No ongoing service notification, wake lock, socket or media capture is left behind after stop, when these features are implemented. The screen-on flag is also cleared when the active Monitor UI is disposed or monitoring stops.
 - [ ] Wi-Fi loss, Camera app closure, invalid signaling and peer disconnection yield truthful status and recover when expected.
 - [ ] No automatic start after reboot.
 

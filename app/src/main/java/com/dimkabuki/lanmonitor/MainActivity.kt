@@ -1,9 +1,11 @@
 package com.dimkabuki.lanmonitor
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -216,6 +218,7 @@ private fun CameraScreen(onBack: () -> Unit) {
 @Composable
 private fun MonitorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val session = remember { SessionControllerStore.attachUi(context, AppRole.MONITOR) }
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
     var host by rememberSaveable { mutableStateOf("") }
@@ -272,6 +275,18 @@ private fun MonitorScreen(onBack: () -> Unit) {
         onDispose {
             renderer?.let { session.detachRenderer(it, local = false) }
             SessionControllerStore.detachUi(session)
+        }
+    }
+
+    DisposableEffect(activity, session.sessionActive) {
+        val keepScreenOn = session.sessionActive
+        if (keepScreenOn) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (keepScreenOn) {
+                activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
         }
     }
 
@@ -364,6 +379,14 @@ private fun MonitorScreen(onBack: () -> Unit) {
         }
         if (session.sessionActive || session.isBusy) {
             NotificationPermissionNotice(context = context, visible = true)
+            if (session.sessionActive) {
+                Button(
+                    onClick = session::toggleRemoteAudioMuted,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (session.remoteAudioMuted) "Unmute Audio" else "Mute Audio")
+                }
+            }
             Button(
                 onClick = session::stopSession,
                 enabled = !session.isBusy || session.sessionActive,

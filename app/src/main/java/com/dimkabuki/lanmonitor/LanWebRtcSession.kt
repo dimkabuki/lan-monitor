@@ -94,6 +94,8 @@ class LanWebRtcSession(
         private set
     var movementStatus by androidx.compose.runtime.mutableStateOf("Waiting for Monitor video.")
         private set
+    var remoteAudioMuted by androidx.compose.runtime.mutableStateOf(false)
+        private set
 
     @Volatile private var disposed = false
     @Volatile private var shutdownRequested = false
@@ -114,6 +116,8 @@ class LanWebRtcSession(
     @Volatile private var movementAnalysisReady = false
     @Volatile private var lastMovementAnalysisError: String? = null
     private val movementDetector = MovementDetector()
+    private val remoteAudioMuteState = RemoteAudioMuteState()
+    private val remoteAudioLock = Any()
     @Volatile private var localDescriptionSignaled = false
     @Volatile private var remoteDescriptionSet = false
 
@@ -135,10 +139,22 @@ class LanWebRtcSession(
     private var audioSource: org.webrtc.AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
     private var remoteVideoTrack: VideoTrack? = null
+    private var remoteAudioTrack: AudioTrack? = null
     @Volatile private var localRenderer: SurfaceViewRenderer? = null
     @Volatile private var remoteRenderer: SurfaceViewRenderer? = null
     private val pendingLocalCandidates = mutableListOf<IceCandidate>()
     private val pendingRemoteCandidates = mutableListOf<IceCandidate>()
+
+    fun toggleRemoteAudioMuted() {
+        if (role != AppRole.MONITOR) return
+
+        val muted: Boolean
+        synchronized(remoteAudioLock) {
+            muted = remoteAudioMuteState.toggle()
+            remoteAudioTrack?.setEnabled(!muted)
+        }
+        updateUi { remoteAudioMuted = muted }
+    }
 
     private val remoteVideoHealthSink = object : VideoSink {
         override fun onFrame(frame: org.webrtc.VideoFrame) {
@@ -911,7 +927,7 @@ class LanWebRtcSession(
 
         override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
         override fun onAddStream(stream: MediaStream) {
-            stream.audioTracks.forEach { it.setEnabled(true) }
+            stream.audioTracks.forEach(::attachRemoteAudioTrack)
             stream.videoTracks.firstOrNull()?.let(::attachRemoteVideoTrack)
         }
         override fun onRemoveStream(stream: MediaStream) = Unit
@@ -921,15 +937,22 @@ class LanWebRtcSession(
         override fun onAddTrack(receiver: RtpReceiver, mediaStreams: Array<MediaStream>) {
             when (val track = receiver.track()) {
                 is VideoTrack -> attachRemoteVideoTrack(track)
-                is AudioTrack -> track.setEnabled(true)
+                is AudioTrack -> attachRemoteAudioTrack(track)
             }
         }
 
         override fun onTrack(transceiver: RtpTransceiver) {
             when (val track = transceiver.receiver.track()) {
                 is VideoTrack -> attachRemoteVideoTrack(track)
-                is AudioTrack -> track.setEnabled(true)
+                is AudioTrack -> attachRemoteAudioTrack(track)
             }
+        }
+    }
+
+    private fun attachRemoteAudioTrack(track: AudioTrack) {
+        synchronized(remoteAudioLock) {
+            remoteAudioTrack = track
+            track.setEnabled(!remoteAudioMuteState.isMuted)
         }
     }
 
@@ -1139,6 +1162,10 @@ class LanWebRtcSession(
         remoteVideoTrack?.removeSink(remoteVideoHealthSink)
         remoteRenderer?.let { remoteVideoTrack?.removeSink(it) }
         remoteVideoTrack = null
+        synchronized(remoteAudioLock) {
+            remoteAudioTrack?.setEnabled(false)
+            remoteAudioTrack = null
+        }
         lastRemoteVideoFrameAtMs = 0L
         lastMovementAnalysisAtMs = 0L
         movementAnalysisReady = false
@@ -1188,12 +1215,14 @@ class LanWebRtcSession(
         movementAnalysisReady = false
         lastMovementAnalysisError = null
         movementDetector.reset()
+        remoteAudioMuteState.reset()
         serverConnectionClaimed.set(false)
         controllerHasWork = false
         updateUi {
             sessionActive = false
             isBusy = false
             movementStatus = "Not active."
+            remoteAudioMuted = false
         }
     }
 

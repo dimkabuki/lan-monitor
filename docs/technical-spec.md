@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.13  
+**Version:** 1.14  
 **Date:** 2026-10-24  
-**Status:** M0/M1/M2, QR pairing, DNS-SD/mDNS discovery, signaling/WebRTC recovery and PR #8–#10 lifecycle hardening are merged. M5 movement analysis/notifications are implemented on the current development branch with deterministic policy tests; parameter tuning and consolidated physical-device acceptance remain pending.  
+**Status:** M0–M5 implementation slices through PR #11 are merged. This PR adds foreground-only Monitor screen-on behavior and a remote-audio mute control; physical integration, audio, screen lifecycle, and movement acceptance remain pending.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -349,7 +349,7 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M2 — Minimal WebRTC: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) merged at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`. The required PR CI and post-merge development-release workflow passed. A two-device physical video/audio smoke test has not yet been performed, so M2 end-to-end acceptance remains unverified.
 - **M3 — Pairing and discovery: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery. PR #7 adds initial active-session reconnection; physical recovery timing remains unverified.
 - **M4 — Lifecycle: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #8 adds typed foreground-service scaffolding, PR #9 adds process-level controller retention/service references and Activity/Compose reattachment, and PR #10 makes Camera media startup cleanup transactional. Process-death recovery and physical background/screen-off acceptance remain pending.
-- **M5 — Media health and movement: IN PROGRESS.** The first movement-alert slice samples decoded Monitor luma frames, applies brightness compensation and temporal confirmation, posts Android notifications with an 8-second cooldown, and has deterministic JVM policy tests. Screen-on behavior, any required wake lock, and physical false-positive/latency tuning remain outstanding.
+- **M5 — Media health and movement: IMPLEMENTATION IN PROGRESS; ACCEPTANCE PENDING.** Movement alerts sample decoded Monitor luma frames, apply brightness compensation and temporal confirmation, and post Android notifications with an 8-second cooldown. This PR adds foreground-only screen-on behavior and local remote-audio mute/unmute. Physical audio/lifecycle verification and false-positive/latency tuning remain outstanding; introduce a partial wake lock only if device testing demonstrates a need.
 - **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
