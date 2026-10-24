@@ -4,11 +4,15 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, and the same-process active-session registry's Stop/error callback routing. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, and movement confirmation/brightness compensation/cooldown policy. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, microphone playback or Android lifecycle behavior.
 
 ## Physical-device test timing
 
 Per the agreed development workflow, physical verification is a single planned MVP acceptance phase after the core functionality is implemented. Do not block each incremental feature PR waiting for a phone test. Before the MVP phase, mark physical-only criteria **NOT TESTED**; do not infer a pass from CI. If a major implementation issue is discovered earlier, it can still be tested deliberately.
+
+## Movement detector — automated baseline
+
+The current initial policy samples 96×72 luma values at up to 4 Hz. It removes mean signed brightness change, counts residual changes of at least 20 luma levels, confirms movement after 3 consecutive samples affecting at least 10% of the grid, and re-arms after 4 quiet samples. The cooldown allows at most one posted alert per 8 seconds per Monitor session. JVM tests cover sustained movement, static noise, uniform brightness shifts, temporal confirmation and cooldown boundaries. These tests prove policy behavior only; they do not establish the real-room false-positive rate or movement detection accuracy.
 
 ## MVP acceptance — device checklist
 
@@ -76,6 +80,7 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Confirmed motion creates a normal Android notification; notification permission denial is explained clearly.
 - [ ] No more than one notification is sent within the 8-second cooldown.
 - [ ] In stable static conditions, no more than one false movement notification occurs in 30 minutes; record lighting and test conditions.
+- [ ] Turning room lights on/off or changing scene brightness does not generate persistent false alerts; record the observed behavior rather than assuming brightness compensation is sufficient.
 
 ### 6. Cleanup and resilience
 
