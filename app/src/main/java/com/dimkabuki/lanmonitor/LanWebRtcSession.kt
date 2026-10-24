@@ -229,6 +229,7 @@ class LanWebRtcSession(
             },
             onLost = {
                 updateUi {
+                    discoveredCameraAddress = ""
                     discoveryStatus = "Paired Camera advertisement was lost; continuing to search."
                 }
             },
