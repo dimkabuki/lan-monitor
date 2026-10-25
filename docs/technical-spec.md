@@ -28,13 +28,13 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
   - Samsung Galaxy S25, Android 16 / One UI 8.5.
 - Both devices must support both roles. Test both assignments: S20 FE as Camera/S25 as Monitor, and S25 as Camera/S20 FE as Monitor.
 - Minimum OS for this project is Android 13 / API 33, unless a concrete dependency limitation is documented. Choose currently supported stable Kotlin, Android Gradle Plugin, Gradle, Jetpack Compose and WebRTC versions; pin versions and document them.
-### 2.3. Signaling peer address validation
+### 2.2. Signaling peer address validation
 
 - Validate the Camera-side signaling socket peer using `call.request.local.remoteAddress`, which exposes the numeric socket peer address in the Ktor CIO engine.
 - Do not use `call.request.local.remoteHost` for the IPv4 security guard: Ktor documents it as a client address or hostname if it can be resolved. A router may reverse-resolve a valid LAN peer to a hostname, which must not be interpreted as a public/non-private address.
 - Continue to enforce private/link-local IPv4 validation on the numeric peer address. Do not relax the LAN-only guard or trust HTTP-supplied forwarding headers.
 
-### 2.2. Diagnostic logging
+### 2.3. Diagnostic logging
 
 - App-level diagnostic logging is disabled on a cold app launch and is enabled only by an explicit switch on the Camera or Monitor screen.
 - While enabled, write timestamped events to a role-specific text file under `Download/Lan Monitor/` using Android's Downloads media collection. No broad storage permission is required on the minimum supported Android version.

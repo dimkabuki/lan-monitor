@@ -1,10 +1,10 @@
 # Agent Progress
 
-## Current status — 2026-10-24
+## Current status — 2026-10-25
 
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
 - **Current `main` head:** `97e17a82434e483ca4de389da98daa9ea9fc4416`, merged [PR #15](https://github.com/dimkabuki/lan-monitor/pull/15).
-- **Post-merge CI:** Android Development Release [run #40095855484](https://github.com/dimkabuki/lan-monitor/actions/runs/40095855484) succeeded on `c191bc85`, including compile/unit tests and development APK publication.
+- **Post-merge CI:** Android Development Release [run #40114712596](https://github.com/dimkabuki/lan-monitor/actions/runs/40114712596) succeeded on `97e17a82`, including compile/unit tests and development APK publication.
 - **Merged M5 movement PR:** [PR #11](https://github.com/dimkabuki/lan-monitor/pull/11) adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
