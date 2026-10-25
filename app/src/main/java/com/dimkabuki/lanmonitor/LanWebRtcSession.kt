@@ -247,59 +247,58 @@ class LanWebRtcSession(
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
                 if (!sessionActive || isBusy || shutdownRequested || disposed) return@launch
 
+                val capturer = cameraCapturer ?: return@launch
                 val nowMs = SystemClock.elapsedRealtime()
                 val lastFrameAtMs = lastLocalVideoFrameAtMs
-                if (!CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)) {
-                    DiagnosticLog.log(role, "camera_foreground_resume_recovery_skipped", "reason=local_frames_healthy")
-                    return@launch
-                }
+                val captureStalled = CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)
                 val frameAgeMs = lastFrameAtMs.takeIf { it > 0L }?.let { nowMs - it } ?: -1L
-                val capturer = cameraCapturer ?: return@launch
 
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; signaling_connected=${cameraSender != null}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; signaling_connected=${cameraSender != null}",
                 )
-                runCatching { capturer.stopCapture() }.onFailure { error ->
-                    DiagnosticLog.log(
-                        role,
-                        "camera_foreground_capture_stop_failed",
-                        "exception=${error.javaClass.simpleName}",
-                    )
-                }
-                if (!currentCoroutineContext().isActive || shutdownRequested || disposed || cameraCapturer !== capturer) {
-                    return@launch
+
+                if (captureStalled) {
+                    runCatching { capturer.stopCapture() }.onFailure { error ->
+                        DiagnosticLog.log(
+                            role,
+                            "camera_foreground_capture_stop_failed",
+                            "exception=${error.javaClass.simpleName}",
+                        )
+                    }
+                    if (!currentCoroutineContext().isActive || shutdownRequested || disposed || cameraCapturer !== capturer) {
+                        return@launch
+                    }
+
+                    val restartResult = runCatching {
+                        capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+                    }
+                    if (restartResult.isFailure) {
+                        val error = restartResult.exceptionOrNull()
+                        DiagnosticLog.log(
+                            role,
+                            "camera_foreground_capture_restart_failed",
+                            "exception=${error?.javaClass?.simpleName ?: "unknown"}",
+                        )
+                        updateStatus("Could not resume camera capture: ${error?.message ?: "unknown error"}")
+                        return@launch
+                    }
+                    delay(400L)
                 }
 
-                val restartResult = runCatching {
-                    capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
-                }
-                if (restartResult.isFailure) {
-                    val error = restartResult.exceptionOrNull()
-                    DiagnosticLog.log(
-                        role,
-                        "camera_foreground_capture_restart_failed",
-                        "exception=${error?.javaClass?.simpleName ?: "unknown"}",
-                    )
-                    updateStatus("Could not resume camera capture: ${error?.message ?: "unknown error"}")
-                    return@launch
-                }
-
-                delay(400L)
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
-
                 val signalingConnected = cameraSender != null
                 if (signalingConnected) {
-                    updateStatus("Camera capture resumed; refreshing Monitor media connection.")
+                    updateStatus("Camera resumed; refreshing Monitor media connection.")
                     createCameraOffer()
                 } else {
-                    updateStatus("Camera capture resumed; waiting for Monitor to reconnect.")
+                    updateStatus("Camera resumed; waiting for Monitor to reconnect.")
                 }
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_completed",
-                    "signaling_connected=${signalingConnected}",
+                    "capture_restarted=${captureStalled}; signaling_connected=${signalingConnected}",
                 )
             } finally {
                 cameraRecoveryJob = null
