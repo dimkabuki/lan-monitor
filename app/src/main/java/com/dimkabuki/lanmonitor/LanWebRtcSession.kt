@@ -111,6 +111,7 @@ class LanWebRtcSession(
     internal val isShuttingDown: Boolean
         get() = shutdownRequested
     @Volatile private var cameraSender: ((String) -> Unit)? = null
+    @Volatile private var cameraPeerAuthenticated = false
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
@@ -256,7 +257,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; signaling_connected=${cameraSender != null}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; signaling_connected=${cameraSender != null && cameraPeerAuthenticated}",
                 )
 
                 if (captureStalled) {
@@ -288,7 +289,7 @@ class LanWebRtcSession(
                 }
 
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
-                val signalingConnected = cameraSender != null
+                val signalingConnected = cameraSender != null && cameraPeerAuthenticated
                 if (signalingConnected) {
                     updateStatus("Camera resumed; refreshing Monitor media connection.")
                     createCameraOffer()
@@ -949,6 +950,7 @@ class LanWebRtcSession(
                         Unit
                     }
                     cameraSender = sender
+                    cameraPeerAuthenticated = false
                     val writer = launch {
                         for (raw in outbound) send(Frame.Text(raw))
                     }
@@ -975,6 +977,7 @@ class LanWebRtcSession(
                                     break
                                 }
                                 authenticated = true
+                                cameraPeerAuthenticated = true
                                 DiagnosticLog.log(role, "camera_pairing_accepted", "remote_address=$remoteAddress")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
                                 updateStatus("Monitor paired; negotiating WebRTC.")
@@ -997,6 +1000,7 @@ class LanWebRtcSession(
                     } finally {
                         DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
                         cameraSender = null
+                        cameraPeerAuthenticated = false
                         outbound.close()
                         writer.cancel()
                         if (authenticated && !shutdownRequested && !disposed) {
@@ -1440,6 +1444,7 @@ class LanWebRtcSession(
         cameraServer = null
         monitorSender = null
         cameraSender = null
+        cameraPeerAuthenticated = false
         closePeerConnection()
 
         localRenderer?.let { renderer -> runCatching { localVideoTrack?.removeSink(renderer) } }
