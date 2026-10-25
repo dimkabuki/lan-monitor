@@ -4,9 +4,12 @@ import android.Manifest
 import android.graphics.Color as AndroidColor
 import android.view.View
 import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -14,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +26,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -88,6 +93,21 @@ private val LanMonitorLightColors = lightColorScheme(
 )
 
 class MainActivity : ComponentActivity() {
+    private val pictureInPictureModeState = mutableStateOf(false)
+
+    override fun onResume() {
+        super.onResume()
+        SessionControllerStore.existing(AppRole.CAMERA)?.recoverCameraAfterForegroundReturn()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pictureInPictureModeState.value = isInPictureInPictureMode
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -164,6 +184,7 @@ class MainActivity : ComponentActivity() {
                             diagnosticLoggingEnabled = diagnosticLoggingEnabled,
                             diagnosticLogStatusMessage = diagnosticLogStatusMessage,
                             onDiagnosticLoggingChanged = onDiagnosticLoggingChanged,
+                            isPictureInPictureMode = pictureInPictureModeState.value,
                         )
                     }
                 }
@@ -246,6 +267,18 @@ private fun RoleSelectionScreen(
             "Lan Monitor",
             style = MaterialTheme.typography.headlineLarge,
         )
+        Text("Choose a role. Both devices must be connected to the same Wi-Fi network.")
+        Button(onClick = { onRoleSelected(AppRole.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
+            Text("Camera")
+        }
+        Button(onClick = { onRoleSelected(AppRole.MONITOR) }, modifier = Modifier.fillMaxWidth()) {
+            Text("Monitor")
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            "Pair by scanning the Camera QR code, or enter its private LAN address and temporary token manually.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -256,18 +289,18 @@ private fun RoleSelectionScreen(
                 onDarkThemeChanged = onDarkThemeChanged,
             )
         }
-        Text("Choose a role. Both devices must be connected to the same Wi-Fi network.")
-        Button(onClick = { onRoleSelected(AppRole.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Camera")
-        }
-        Button(onClick = { onRoleSelected(AppRole.MONITOR) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Monitor")
-        }
-        Text(
-            "M3 pairing: scan a Camera QR code or enter a private LAN address and temporary token manually.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        AppVersionLabel()
     }
+}
+
+@Composable
+private fun AppVersionLabel() {
+    Text(
+        "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_COMMIT})",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -324,19 +357,6 @@ private fun CameraScreen(
                 modifier = Modifier.weight(1f),
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
-        }
-        DiagnosticLoggingControl(
-            role = AppRole.CAMERA,
-            enabled = diagnosticLoggingEnabled,
-            statusMessage = diagnosticLogStatusMessage,
-            onChanged = onDiagnosticLoggingChanged,
-        )
         Text("Camera preview", style = MaterialTheme.typography.titleMedium)
         AndroidView(
             factory = { viewContext ->
@@ -387,14 +407,6 @@ private fun CameraScreen(
         if (session.sessionActive || session.isBusy) {
             NotificationPermissionNotice(context = context, visible = true)
         }
-        if (session.sessionActive) {
-            Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
-        }
-        if (session.cameraAddresses.isNotEmpty()) {
-            Text("Camera address", style = MaterialTheme.typography.titleMedium)
-            Text(session.cameraAddresses.joinToString(separator = "\n"))
-            Text("Monitor connects to port ${LanWebRtcSession.SIGNAL_PORT}. Use the address on the same Wi-Fi network.")
-        }
         if (pairingQrBitmap != null) {
             Text("Scan to pair", style = MaterialTheme.typography.titleMedium)
             Image(
@@ -406,6 +418,14 @@ private fun CameraScreen(
         } else if (session.pairingPayload.isNotBlank()) {
             Text("Pairing QR code could not be generated. Use the manual address/token fields on Monitor.")
         }
+        if (session.sessionActive) {
+            Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
+        }
+        if (session.cameraAddresses.isNotEmpty()) {
+            Text("Camera address", style = MaterialTheme.typography.titleMedium)
+            Text(session.cameraAddresses.joinToString(separator = "\n"))
+            Text("Monitor connects to port ${LanWebRtcSession.SIGNAL_PORT}. Use the address on the same Wi-Fi network.")
+        }
         if (session.pairingToken.isNotEmpty()) {
             Text("Temporary pairing token (manual fallback)", style = MaterialTheme.typography.titleMedium)
             Text(session.pairingToken, style = MaterialTheme.typography.headlineSmall)
@@ -415,6 +435,19 @@ private fun CameraScreen(
             "An ongoing foreground-service notification accompanies active sessions. Background and screen-off reliability still require verification on the target devices; removing the app from Recents stops the session.",
             style = MaterialTheme.typography.bodySmall,
         )
+        DiagnosticLoggingControl(
+            role = AppRole.CAMERA,
+            enabled = diagnosticLoggingEnabled,
+            statusMessage = diagnosticLogStatusMessage,
+            onChanged = onDiagnosticLoggingChanged,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
+        }
     }
 }
 
@@ -426,6 +459,7 @@ private fun MonitorScreen(
     diagnosticLoggingEnabled: Boolean,
     diagnosticLogStatusMessage: String,
     onDiagnosticLoggingChanged: (AppRole, Boolean) -> Unit,
+    isPictureInPictureMode: Boolean,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -435,6 +469,12 @@ private fun MonitorScreen(
     var token by rememberSaveable { mutableStateOf("") }
     var pairedCameraId by rememberSaveable { mutableStateOf("") }
     var connectAfterNotificationPrompt by rememberSaveable { mutableStateOf(false) }
+    var fullScreen by rememberSaveable { mutableStateOf(false) }
+    val compactVideoMode = fullScreen || isPictureInPictureMode
+
+    BackHandler(enabled = fullScreen && !isPictureInPictureMode) {
+        fullScreen = false
+    }
 
     val scanLauncher = rememberLauncherForActivityResult(
         contract = ScanContract(),
@@ -495,8 +535,8 @@ private fun MonitorScreen(
         }
     }
 
-    DisposableEffect(activity, session.sessionActive) {
-        val keepScreenOn = session.sessionActive
+    DisposableEffect(activity, session.sessionActive, isPictureInPictureMode) {
+        val keepScreenOn = session.sessionActive && !isPictureInPictureMode
         if (keepScreenOn) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -507,143 +547,203 @@ private fun MonitorScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Button(onClick = onBack) { Text("Back") }
-            Text(
-                "Monitor",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.weight(1f),
-            )
+    DisposableEffect(activity, fullScreen, isPictureInPictureMode) {
+        val decorView = activity?.window?.decorView
+        val previousSystemUiVisibility = decorView?.systemUiVisibility
+        if (decorView != null && fullScreen && !isPictureInPictureMode) {
+            val immersiveFlags =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            decorView.systemUiVisibility = previousSystemUiVisibility!! or immersiveFlags
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
-        }
-        DiagnosticLoggingControl(
-            role = AppRole.MONITOR,
-            enabled = diagnosticLoggingEnabled,
-            statusMessage = diagnosticLogStatusMessage,
-            onChanged = onDiagnosticLoggingChanged,
-        )
-        AndroidView(
-            factory = { viewContext ->
-                SurfaceViewRenderer(viewContext).also {
-                    renderer = it
-                    session.attachRenderer(it, local = false)
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(240.dp),
-        )
-        Button(
-            onClick = {
-                DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_scan_requested")
-                if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                    scanLauncher.launch(
-                        ScanOptions()
-                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setPrompt("Scan the Camera pairing QR code")
-                            .setBeepEnabled(false)
-                            .setOrientationLocked(false),
-                    )
-                } else {
-                    scanPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }
-            },
-            enabled = !session.isBusy && !session.sessionActive,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Scan Camera QR")
-        }
-        LaunchedEffect(session.discoveredCameraAddress) {
-            if (session.discoveredCameraAddress.isNotBlank()) {
-                host = session.discoveredCameraAddress
+        onDispose {
+            if (decorView != null && previousSystemUiVisibility != null) {
+                decorView.systemUiVisibility = previousSystemUiVisibility
             }
         }
-        if (pairedCameraId.isNotBlank()) {
-            Text("Camera identity: $pairedCameraId", style = MaterialTheme.typography.bodySmall)
-            Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
-            Button(
-                onClick = { session.discoverPairedCamera(pairedCameraId) },
-                enabled = !session.isBusy && !session.sessionActive,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Find Camera on LAN")
-            }
+    }
+
+    LaunchedEffect(session.discoveredCameraAddress) {
+        if (session.discoveredCameraAddress.isNotBlank()) {
+            host = session.discoveredCameraAddress
         }
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it },
-            label = { Text("Camera private IPv4 address") },
-            placeholder = { Text("192.168.1.20") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            enabled = !session.isBusy && !session.sessionActive,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("Temporary pairing token") },
-            singleLine = true,
-            enabled = !session.isBusy && !session.sessionActive,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = {
-                if (
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = if (compactVideoMode) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
+            },
+            verticalArrangement = if (compactVideoMode) Arrangement.Top else Arrangement.spacedBy(14.dp),
+        ) {
+            if (!compactVideoMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    connectAfterNotificationPrompt = true
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    session.connectToCamera(host.trim(), token.trim())
+                    Button(onClick = onBack) { Text("Back") }
+                    Text(
+                        "Monitor",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-            },
-            enabled = !session.isBusy && !session.sessionActive && host.isNotBlank() && token.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (session.isBusy) "Connecting…" else "Connect to Camera")
-        }
-        if (session.sessionActive || session.isBusy) {
-            NotificationPermissionNotice(context = context, visible = true)
-            if (session.sessionActive) {
+            }
+
+            AndroidView(
+                factory = { viewContext ->
+                    SurfaceViewRenderer(viewContext).also {
+                        renderer = it
+                        session.attachRenderer(it, local = false)
+                    }
+                },
+                modifier = if (compactVideoMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(240.dp),
+            )
+
+            if (!compactVideoMode) {
                 Button(
-                    onClick = session::toggleRemoteAudioMuted,
+                    onClick = {
+                        DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_scan_requested")
+                        if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            scanLauncher.launch(
+                                ScanOptions()
+                                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                    .setPrompt("Scan the Camera pairing QR code")
+                                    .setBeepEnabled(false)
+                                    .setOrientationLocked(false),
+                            )
+                        } else {
+                            scanPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    enabled = !session.isBusy && !session.sessionActive,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (session.remoteAudioMuted) "Unmute Audio" else "Mute Audio")
+                    Text("Scan Camera QR")
+                }
+                if (pairedCameraId.isNotBlank()) {
+                    Text("Camera identity: $pairedCameraId", style = MaterialTheme.typography.bodySmall)
+                    Text("Local discovery: ${session.discoveryStatus}", style = MaterialTheme.typography.bodySmall)
+                    Button(
+                        onClick = { session.discoverPairedCamera(pairedCameraId) },
+                        enabled = !session.isBusy && !session.sessionActive,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Find Camera on LAN")
+                    }
+                }
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text("Camera private IPv4 address") },
+                    placeholder = { Text("192.168.1.20") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !session.isBusy && !session.sessionActive,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    label = { Text("Temporary pairing token") },
+                    singleLine = true,
+                    enabled = !session.isBusy && !session.sessionActive,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        if (
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            connectAfterNotificationPrompt = true
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            session.connectToCamera(host.trim(), token.trim())
+                        }
+                    },
+                    enabled = !session.isBusy && !session.sessionActive && host.isNotBlank() && token.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (session.isBusy) "Connecting…" else "Connect to Camera")
+                }
+                if (session.sessionActive || session.isBusy) {
+                    NotificationPermissionNotice(context = context, visible = true)
+                    if (session.sessionActive) {
+                        Button(
+                            onClick = session::toggleRemoteAudioMuted,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (session.remoteAudioMuted) "Unmute Audio" else "Mute Audio")
+                        }
+                        Button(
+                            onClick = { fullScreen = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Full screen")
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            Button(
+                                onClick = {
+                                    val params = PictureInPictureParams.Builder()
+                                        .setAspectRatio(Rational(4, 3))
+                                        .build()
+                                    activity?.enterPictureInPictureMode(params)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Picture-in-picture")
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = session::stopSession,
+                        enabled = !session.isBusy || session.sessionActive,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Stop Monitoring")
+                    }
+                }
+                Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+                Text("Movement alerts: ${session.movementStatus}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Scanning by Camera identity only updates the connection address. If local discovery is unavailable, use the address embedded in the QR or type an address manually.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Use a private LAN IPv4 address and the temporary token shown by Camera. Video and audio travel directly over WebRTC; this app configures no STUN/TURN or cloud signaling.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                DiagnosticLoggingControl(
+                    role = AppRole.MONITOR,
+                    enabled = diagnosticLoggingEnabled,
+                    statusMessage = diagnosticLogStatusMessage,
+                    onChanged = onDiagnosticLoggingChanged,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
                 }
             }
+        }
+        if (fullScreen && !isPictureInPictureMode) {
             Button(
-                onClick = session::stopSession,
-                enabled = !session.isBusy || session.sessionActive,
-                modifier = Modifier.fillMaxWidth(),
+                onClick = { fullScreen = false },
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             ) {
-                Text("Stop Monitoring")
+                Text("Exit full screen")
             }
         }
-        Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
-        Text("Movement alerts: ${session.movementStatus}", style = MaterialTheme.typography.bodyMedium)
-        Text(
-            "Scanning by Camera identity only updates the connection address. If local discovery is unavailable, use the address embedded in the QR or type an address manually.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "Use a private LAN IPv4 address and the temporary token shown by Camera. Video and audio travel directly over WebRTC; this app configures no STUN/TURN or cloud signaling.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
