@@ -101,6 +101,7 @@ class LanWebRtcSession(
     @Volatile private var shutdownRequested = false
     @Volatile private var controllerHasWork = false
     @Volatile private var cameraStartJob: Job? = null
+    @Volatile private var cameraRecoveryJob: Job? = null
 
     internal val hasSessionWork: Boolean
         get() = controllerHasWork
@@ -110,7 +111,9 @@ class LanWebRtcSession(
     internal val isShuttingDown: Boolean
         get() = shutdownRequested
     @Volatile private var cameraSender: ((String) -> Unit)? = null
+    @Volatile private var cameraPeerAuthenticated = false
     @Volatile private var monitorSender: ((String) -> Unit)? = null
+    @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
     @Volatile private var lastLoggedVideoHealth: Boolean? = null
     @Volatile private var lastMovementAnalysisAtMs = 0L
@@ -155,6 +158,12 @@ class LanWebRtcSession(
             remoteAudioTrack?.setEnabled(!muted)
         }
         updateUi { remoteAudioMuted = muted }
+    }
+
+    private val localVideoHealthSink = object : VideoSink {
+        override fun onFrame(frame: org.webrtc.VideoFrame) {
+            lastLocalVideoFrameAtMs = SystemClock.elapsedRealtime()
+        }
     }
 
     private val remoteVideoHealthSink = object : VideoSink {
@@ -226,6 +235,82 @@ class LanWebRtcSession(
                 }
             MovementNotificationOutcome.FAILED ->
                 updateUi { movementStatus = "Movement detected, but the notification could not be posted." }
+        }
+    }
+
+    fun recoverCameraAfterForegroundReturn() {
+        if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
+        if (cameraRecoveryJob?.isActive == true) return
+
+        // Only renegotiate with the same peer that was already authenticated when the Activity resumed.
+        // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
+        val senderAtResume = cameraSender
+        val peerAuthenticatedAtResume = cameraPeerAuthenticated
+        cameraRecoveryJob = scope.launch {
+            try {
+                delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
+                if (!sessionActive || isBusy || shutdownRequested || disposed) return@launch
+
+                val capturer = cameraCapturer ?: return@launch
+                val nowMs = SystemClock.elapsedRealtime()
+                val lastFrameAtMs = lastLocalVideoFrameAtMs
+                val captureStalled = CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)
+                val frameAgeMs = lastFrameAtMs.takeIf { it > 0L }?.let { nowMs - it } ?: -1L
+
+                DiagnosticLog.log(
+                    role,
+                    "camera_foreground_resume_recovery_started",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; authenticated_peer_at_resume=${peerAuthenticatedAtResume}",
+                )
+
+                if (captureStalled) {
+                    runCatching { capturer.stopCapture() }.onFailure { error ->
+                        DiagnosticLog.log(
+                            role,
+                            "camera_foreground_capture_stop_failed",
+                            "exception=${error.javaClass.simpleName}",
+                        )
+                    }
+                    if (!currentCoroutineContext().isActive || shutdownRequested || disposed || cameraCapturer !== capturer) {
+                        return@launch
+                    }
+
+                    val restartResult = runCatching {
+                        capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+                    }
+                    if (restartResult.isFailure) {
+                        val error = restartResult.exceptionOrNull()
+                        DiagnosticLog.log(
+                            role,
+                            "camera_foreground_capture_restart_failed",
+                            "exception=${error?.javaClass?.simpleName ?: "unknown"}",
+                        )
+                        updateStatus("Could not resume camera capture: ${error?.message ?: "unknown error"}")
+                        return@launch
+                    }
+                    delay(400L)
+                }
+
+                if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
+                val signalingConnected =
+                    peerAuthenticatedAtResume &&
+                        senderAtResume != null &&
+                        cameraSender === senderAtResume &&
+                        cameraPeerAuthenticated
+                if (signalingConnected) {
+                    updateStatus("Camera resumed; refreshing Monitor media connection.")
+                    createCameraOffer()
+                } else {
+                    updateStatus("Camera resumed; waiting for Monitor to reconnect.")
+                }
+                DiagnosticLog.log(
+                    role,
+                    "camera_foreground_resume_recovery_completed",
+                    "capture_restarted=${captureStalled}; signaling_reoffered=${signalingConnected}",
+                )
+            } finally {
+                cameraRecoveryJob = null
+            }
         }
     }
 
@@ -803,6 +888,7 @@ class LanWebRtcSession(
 
             val videoTrack = factory.createVideoTrack("lan-monitor-video", source)
             createdVideoTrack = videoTrack
+            videoTrack.addSink(localVideoHealthSink)
             videoTrack.setEnabled(true)
             val audioSource = factory.createAudioSource(MediaConstraints())
             createdAudioSource = audioSource
@@ -829,6 +915,7 @@ class LanWebRtcSession(
                 if (captureStartAttempted) {
                     runCatching { createdCapturer?.stopCapture() }
                 }
+                runCatching { createdVideoTrack?.removeSink(localVideoHealthSink) }
                 runCatching { createdAudioTrack?.dispose() }
                 runCatching { createdAudioSource?.dispose() }
                 runCatching { createdVideoTrack?.dispose() }
@@ -870,6 +957,7 @@ class LanWebRtcSession(
                         Unit
                     }
                     cameraSender = sender
+                    cameraPeerAuthenticated = false
                     val writer = launch {
                         for (raw in outbound) send(Frame.Text(raw))
                     }
@@ -896,6 +984,7 @@ class LanWebRtcSession(
                                     break
                                 }
                                 authenticated = true
+                                cameraPeerAuthenticated = true
                                 DiagnosticLog.log(role, "camera_pairing_accepted", "remote_address=$remoteAddress")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
                                 updateStatus("Monitor paired; negotiating WebRTC.")
@@ -918,6 +1007,7 @@ class LanWebRtcSession(
                     } finally {
                         DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
                         cameraSender = null
+                        cameraPeerAuthenticated = false
                         outbound.close()
                         writer.cancel()
                         if (authenticated && !shutdownRequested && !disposed) {
@@ -1345,6 +1435,10 @@ class LanWebRtcSession(
 
     private suspend fun cleanupSession() {
         shutdownRequested = true
+        val recoveryJob = cameraRecoveryJob
+        cameraRecoveryJob = null
+        recoveryJob?.cancelAndJoin()
+        lastLocalVideoFrameAtMs = 0L
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
         healthJob?.cancel()
@@ -1357,6 +1451,7 @@ class LanWebRtcSession(
         cameraServer = null
         monitorSender = null
         cameraSender = null
+        cameraPeerAuthenticated = false
         closePeerConnection()
 
         localRenderer?.let { renderer -> runCatching { localVideoTrack?.removeSink(renderer) } }
@@ -1367,6 +1462,7 @@ class LanWebRtcSession(
         surfaceTextureHelper = null
         runCatching { videoSource?.dispose() }
         videoSource = null
+        runCatching { localVideoTrack?.removeSink(localVideoHealthSink) }
         runCatching { localVideoTrack?.dispose() }
         localVideoTrack = null
         runCatching { localAudioTrack?.dispose() }
