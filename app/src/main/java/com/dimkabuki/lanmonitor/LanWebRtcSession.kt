@@ -239,17 +239,22 @@ class LanWebRtcSession(
 
     fun recoverCameraAfterForegroundReturn() {
         if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
-
-        val nowMs = SystemClock.elapsedRealtime()
-        val lastFrameAtMs = lastLocalVideoFrameAtMs
-        if (!CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)) return
         if (cameraRecoveryJob?.isActive == true) return
 
-        val frameAgeMs = lastFrameAtMs.takeIf { it > 0L }?.let { nowMs - it } ?: -1L
         cameraRecoveryJob = scope.launch {
             try {
+                // Give Camera2 time to restore the capture stream as the Activity returns.
+                delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
+                if (!sessionActive || isBusy || shutdownRequested || disposed) return@launch
+
+                val nowMs = SystemClock.elapsedRealtime()
+                val lastFrameAtMs = lastLocalVideoFrameAtMs
+                if (!CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)) {
+                    DiagnosticLog.log(role, "camera_foreground_resume_recovery_skipped", "reason=local_frames_healthy")
+                    return@launch
+                }
+                val frameAgeMs = lastFrameAtMs.takeIf { it > 0L }?.let { nowMs - it } ?: -1L
                 val capturer = cameraCapturer ?: return@launch
-                if (!sessionActive || shutdownRequested || disposed) return@launch
 
                 DiagnosticLog.log(
                     role,
@@ -1419,10 +1424,11 @@ class LanWebRtcSession(
     }
 
     private suspend fun cleanupSession() {
-        cameraRecoveryJob?.cancel()
-        cameraRecoveryJob = null
-        lastLocalVideoFrameAtMs = 0L
         shutdownRequested = true
+        val recoveryJob = cameraRecoveryJob
+        cameraRecoveryJob = null
+        recoveryJob?.cancelAndJoin()
+        lastLocalVideoFrameAtMs = 0L
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
         healthJob?.cancel()
