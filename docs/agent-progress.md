@@ -1,10 +1,13 @@
 # Agent Progress
 
-## Current status — 2026-10-25
+## Current status — 2026-10-25 (live GitHub verification)
 
-- **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
-- **Current `main` head:** `97e17a82434e483ca4de389da98daa9ea9fc4416`, merged [PR #15](https://github.com/dimkabuki/lan-monitor/pull/15).
-- **Post-merge CI:** Android Development Release [run #40114712596](https://github.com/dimkabuki/lan-monitor/actions/runs/40114712596) succeeded on `97e17a82`, including compile/unit tests and development APK publication.
+- **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`; auto-merge enabled repository-wide with squash as the only merge method.
+- **Verified `main` head:** `d37dbacb05dc338e6f8322af0ab0b351d30facc2`, after merged PRs [#15](https://github.com/dimkabuki/lan-monitor/pull/15), [#16](https://github.com/dimkabuki/lan-monitor/pull/16), and [#17](https://github.com/dimkabuki/lan-monitor/pull/17). No open PRs existed when this feature branch was started.
+- **Latest verified development APK:** [snapshot-d37dbac](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d37dbac), published by Android Development Release workflow [run #40177994094](https://github.com/dimkabuki/lan-monitor/actions/runs/40177994094).
+- **Merged fixes:** PR #16 validates the numeric Ktor peer address rather than reverse-resolved hostname; PR #17 moves the theme toggle below the screen title to avoid narrow-header wrapping. CI and post-merge release passed for both. The user reports that the original pairing problem now appears fixed; acceptance remains based on actual device behavior, not CI.
+- **Current implementation branch:** `feat/monitor-fullscreen-pip-resume-recovery`. It is implementing a compact role-selection screen with app version/build SHA, bottom-positioned diagnostics/theme controls, Monitor full-screen and picture-in-picture modes, and Camera capture recovery on foreground return. This branch has not yet had PR CI or physical-device acceptance.
+- **Next action:** finish source/docs review, create one PR, enable check-gated squash auto-merge, inspect required CI, and verify the post-merge development APK. Then test Monitor full-screen/PiP and Camera foreground-resume recovery on the two Samsung phones.
 - **Merged M5 movement PR:** [PR #11](https://github.com/dimkabuki/lan-monitor/pull/11) adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
@@ -28,4 +31,4 @@
 - **Merged diagnostic logging PR #15:** opt-in Camera/Monitor logs are available under `Download/Lan Monitor/`; tokens, QR/SDP/full ICE payloads and media are excluded. Files are capped at 2 MiB, with logging off by default.
 - **Root cause found from device logs (2026-10-25):** Camera validated `call.request.local.remoteHost` using the numeric private-IPv4 guard. Ktor CIO can return a reverse-DNS hostname there (`Dmytro-s-S25.fritz.box`) for a LAN socket, so every Monitor WebSocket was rejected before token authentication and WebRTC negotiation.
 - **Merged peer-validation fix PR #16:** validates Ktor's numeric socket peer address (`remoteAddress`) and retains the private-IPv4 guard; Android CI and development-release workflows passed. Physical confirmation of connection and media on both phones is still pending.
-- **Current UI layout PR:** `fix/compact-screen-headers` moves the Dark theme switch to its own right-aligned row, leaving title labels and the Back button with enough horizontal space. It adds explicit small-screen header acceptance checks. Auto-merge should be enabled after opening the PR.
+- **Merged UI layout PR #17:** `fix/compact-screen-headers` moves the Dark theme switch to its own right-aligned row, leaving title labels and the Back button with enough horizontal space. CI and post-merge development release passed; physical layout confirmation remains pending.
