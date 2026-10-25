@@ -242,9 +242,12 @@ class LanWebRtcSession(
         if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
         if (cameraRecoveryJob?.isActive == true) return
 
+        // Only renegotiate with the same peer that was already authenticated when the Activity resumed.
+        // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
+        val senderAtResume = cameraSender
+        val peerAuthenticatedAtResume = cameraPeerAuthenticated
         cameraRecoveryJob = scope.launch {
             try {
-                // Give Camera2 time to restore the capture stream as the Activity returns.
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
                 if (!sessionActive || isBusy || shutdownRequested || disposed) return@launch
 
@@ -257,7 +260,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; signaling_connected=${cameraSender != null && cameraPeerAuthenticated}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; authenticated_peer_at_resume=${peerAuthenticatedAtResume}",
                 )
 
                 if (captureStalled) {
@@ -289,7 +292,11 @@ class LanWebRtcSession(
                 }
 
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
-                val signalingConnected = cameraSender != null && cameraPeerAuthenticated
+                val signalingConnected =
+                    peerAuthenticatedAtResume &&
+                        senderAtResume != null &&
+                        cameraSender === senderAtResume &&
+                        cameraPeerAuthenticated
                 if (signalingConnected) {
                     updateStatus("Camera resumed; refreshing Monitor media connection.")
                     createCameraOffer()
@@ -299,7 +306,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_completed",
-                    "capture_restarted=${captureStalled}; signaling_connected=${signalingConnected}",
+                    "capture_restarted=${captureStalled}; signaling_reoffered=${signalingConnected}",
                 )
             } finally {
                 cameraRecoveryJob = null
