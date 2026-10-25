@@ -325,10 +325,10 @@ The implementation repository is `dimkabuki/lan-monitor`. As verified on 2026-10
 
 - `main` is the stable branch. Never commit directly to `main` and never force-push.
 - All implementation changes must be made on a descriptive branch and proposed through a pull request targeting `main`.
-- Require PRs before merging. Since this is currently a single-maintainer project, do not require an approving review from another user unless a second reviewer is actually available; self-approval is not a workable gate. The required CI status check and explicit owner-controlled merge are the minimum gates.
+- Require PRs before merging. Since this is currently a single-maintainer project, do not require an approving review from another user unless a second reviewer is actually available; self-approval is not a workable gate. Required CI and any configured review requirements must gate merging.
 - Block force pushes and branch deletion. Enable “Do not allow bypassing the above settings” / equivalent admin enforcement if available.
 - Require the successful `build-and-test` status check. The active `Protect main` ruleset already requires this context. Keep its name stable; if it changes, update the ruleset and verify the required check on a test PR.
-- The agent must never merge PRs automatically. The repository owner controls merging.
+- Enable GitHub auto-merge on each newly created PR when appropriate. Auto-merge must wait for required CI checks and any configured reviews; never use immediate merge or bypass branch protection.
 - The active `Protect main` ruleset currently targets the default branch, requires PRs and the `build-and-test` status check, blocks branch deletion and non-fast-forward updates (including force pushes), and has no bypass actors. Repository merge settings enable squash only. Re-verify these settings when governance is changed; do not claim protection is active without inspecting GitHub's actual settings.
 
 ### 11.2. Current governance and workflow state
@@ -338,12 +338,12 @@ The implementation repository is `dimkabuki/lan-monitor`. As verified on 2026-10
 - Active ruleset: `Protect main`, targeting the default branch.
 - Required status check: `build-and-test`.
 - Protection: PR required, deletion blocked, non-fast-forward updates blocked, bypass list empty; branch freshness relative to `main` is not required.
-- Allowed merge method: squash only; merge commits, rebase merges, and auto-merge are disabled.
+- Allowed merge method: squash only. Repository-level auto-merge is enabled; enable it per PR after creation so required checks/reviews gate the actual merge.
 - Pull-request workflow: compile Kotlin code, run unit tests, upload test reports; do not publish an APK artifact for ordinary PR runs.
 - Manual workflow: optionally build and upload a debug APK after compile/tests pass.
 - Push to `main`: build, test, and publish a GitHub development pre-release containing the debug APK. Both post-merge releases have succeeded; the newer release uses the normalized `lan-monitor-debug.apk` asset name.
 - Automatically delete head branches: enabled (`delete_branch_on_merge=true`, checked 2026-10-24). The old `chore/bootstrap-ci` branch has now been deleted. Future merged PR branches are removed automatically.
-- Continue to use descriptive feature/documentation branches and PRs for every code or documentation change. Do not commit directly to `main`, force-push, or merge PRs automatically.
+- Continue to use descriptive feature/documentation branches and PRs for every code or documentation change. Do not commit directly to `main`, force-push, bypass required checks, or merge PRs immediately.
 
 The repository bootstrap, initial M2 implementation and M2 policy tests are merged. Physical tests remain `NOT TESTED` until the planned MVP verification phase; continue with feature implementation without treating that deferred test as a per-PR blocker, and do not claim acceptance before evidence exists.
 ### 11.3. Repository contents
@@ -391,7 +391,7 @@ M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), active-session recovery (
 ### 13.2. Branches and commits
 
 - Work only on a branch, e.g. `chore/bootstrap-ci`, `feat/webrtc-baseline` or `fix/reconnect-timeout`.
-- Do not commit directly to `main`, force-push, rewrite published history or merge PRs automatically.
+- Do not commit directly to `main`, force-push, rewrite published history, bypass required checks, or use immediate merge operations.
 - Make coherent commits at stable checkpoints; avoid committing an avoidably broken intermediate state.
 - Prefer one small, reviewable PR per milestone. Do not open several parallel implementation tracks.
 - Do not start the next milestone until the current changes are committed, the PR is open where appropriate, and the CI result has been inspected. If CI did not run, say so.
