@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.16  
-**Date:** 2026-10-24  
-**Status:** M0–M5 implementation slices through PR #12 and UI refinement PR #14 are merged. The app has a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Opt-in, privacy-filtered diagnostic logging is being added to help investigate physical-device connection failures. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
+**Version:** 1.17  
+**Date:** 2026-10-25  
+**Status:** M0–M5 implementation slices through PR #12 and UI refinement PR #14 are merged. The app has a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Opt-in, privacy-filtered diagnostic logging is merged in PR #15. The Camera validates incoming signaling peers against Ktor's numeric socket address (`remoteAddress`), not `remoteHost`, which can be reverse-resolved to a hostname. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -28,6 +28,12 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
   - Samsung Galaxy S25, Android 16 / One UI 8.5.
 - Both devices must support both roles. Test both assignments: S20 FE as Camera/S25 as Monitor, and S25 as Camera/S20 FE as Monitor.
 - Minimum OS for this project is Android 13 / API 33, unless a concrete dependency limitation is documented. Choose currently supported stable Kotlin, Android Gradle Plugin, Gradle, Jetpack Compose and WebRTC versions; pin versions and document them.
+### 2.3. Signaling peer address validation
+
+- Validate the Camera-side signaling socket peer using `call.request.local.remoteAddress`, which exposes the numeric socket peer address in the Ktor CIO engine.
+- Do not use `call.request.local.remoteHost` for the IPv4 security guard: Ktor documents it as a client address or hostname if it can be resolved. A router may reverse-resolve a valid LAN peer to a hostname, which must not be interpreted as a public/non-private address.
+- Continue to enforce private/link-local IPv4 validation on the numeric peer address. Do not relax the LAN-only guard or trust HTTP-supplied forwarding headers.
+
 ### 2.2. Diagnostic logging
 
 - App-level diagnostic logging is disabled on a cold app launch and is enabled only by an explicit switch on the Camera or Monitor screen.

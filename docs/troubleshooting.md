@@ -1,5 +1,10 @@
 # Troubleshooting
 
+## Camera rejects a LAN peer with `non_private_ipv4`
+
+If the Camera log says `camera_socket_rejected` with `reason=non_private_ipv4` and a hostname such as `*.fritz.box` in the old `remote_host` field, an older build may be validating Ktor's reverse-resolved `remoteHost` string as if it were a numeric IPv4 address. Ktor's `remoteHost` can be a hostname; the fix is to validate the numeric socket `remoteAddress` while retaining the private IPv4 restriction. Update both phones to a build containing that fix. Do not disable or loosen the private-LAN validation.
+
+
 ## Collect app diagnostics from both phones
 
 No laptop or Android Studio is required. Lan Monitor can write a diagnostic text file to the phone's public Downloads folder when explicitly enabled.

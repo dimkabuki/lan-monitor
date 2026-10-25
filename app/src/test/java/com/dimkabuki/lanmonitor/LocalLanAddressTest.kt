@@ -29,4 +29,11 @@ class LocalLanAddressTest {
             "",
         ).forEach { assertFalse("Expected rejected address: $it", LocalLanAddress.isPrivateIpv4(it)) }
     }
+    @Test
+    fun reverseResolvedLanHostnameIsNotTreatedAsNumericPeerAddress() {
+        // Ktor's remoteHost may be a reverse-DNS name even when the socket peer is on the LAN.
+        assertFalse(LocalLanAddress.isPrivateIpv4("Dmytro-s-S25.fritz.box"))
+        assertTrue(LocalLanAddress.isPrivateIpv4("192.168.178.25"))
+    }
+
 }

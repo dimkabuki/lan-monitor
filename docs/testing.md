@@ -4,7 +4,13 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation (including rejection of reverse-DNS hostnames as numeric peer addresses), pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
+
+## Signaling peer validation regression
+
+- [ ] A Monitor on the same Wi-Fi connects when the Camera's reverse DNS maps the Monitor to a `.fritz.box` hostname.
+- [ ] The Camera logs the numeric socket peer as `remote_address=192.168.x.x` (or another accepted private/link-local IPv4), not a reverse-resolved hostname.
+- [ ] Public/non-private numeric peer addresses remain rejected; do not weaken the private IPv4 guard.
 
 ## Opt-in diagnostic logging
 
