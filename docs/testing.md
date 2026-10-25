@@ -6,6 +6,13 @@ The required status-check context is `build-and-test` in the Android CI workflow
 
 Automated JVM tests cover role labels, private IPv4 validation (including rejection of reverse-DNS hostnames as numeric peer addresses), pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
 
+## Appearance and responsive screen headers
+
+- [ ] On role selection, "Lan Monitor" remains on one line on the supported phones at default font/display size.
+- [ ] On Camera and Monitor screens, the title remains on one line and is not clipped next to the Back button.
+- [ ] The Dark theme switch is placed on a separate, right-aligned row beneath the title on role selection, Camera and Monitor screens.
+- [ ] Switching themes on each screen works without interrupting a running session.
+
 ## Signaling peer validation regression
 
 - [ ] A Monitor on the same Wi-Fi connects when the Camera's reverse DNS maps the Monitor to a `.fritz.box` hostname.

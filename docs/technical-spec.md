@@ -1,6 +1,6 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.17  
+**Version:** 1.18  
 **Date:** 2026-10-25  
 **Status:** M0–M5 implementation slices through PR #12 and UI refinement PR #14 are merged. The app has a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Opt-in, privacy-filtered diagnostic logging is merged in PR #15. The Camera validates incoming signaling peers against Ktor's numeric socket address (`remoteAddress`), not `remoteHost`, which can be reverse-resolved to a hostname. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
 **Application name:** Lan Monitor  
@@ -51,6 +51,7 @@ Keep the app deliberately small. No accounts, cloud services, remote access, tel
 - A light theme is supported as an explicit user choice. System-theme synchronization is intentionally out of scope for now.
 - Android status/navigation bar icon contrast follows the selected app theme.
 - The launcher uses an adaptive vector icon depicting overlapping screens with colorful wireless/mirroring accents.
+- Screen titles on role selection, Camera and Monitor remain readable and do not wrap or clip at default supported display/font settings. On Camera and Monitor screens, keep the title and Back button on the same row and place the Dark theme switch on a separate, right-aligned row underneath to preserve title width.
 
 ## 3. Architecture and technology
 
