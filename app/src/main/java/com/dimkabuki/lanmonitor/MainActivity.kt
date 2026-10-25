@@ -242,16 +242,15 @@ private fun RoleSelectionScreen(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Text(
+            "Lan Monitor",
+            style = MaterialTheme.typography.headlineLarge,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Lan Monitor",
-                style = MaterialTheme.typography.headlineLarge,
-                modifier = Modifier.weight(1f),
-            )
             ThemeSwitch(
                 darkThemeEnabled = darkThemeEnabled,
                 onDarkThemeChanged = onDarkThemeChanged,
@@ -315,7 +314,7 @@ private fun CameraScreen(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = onBack) { Text("Back") }
@@ -324,6 +323,12 @@ private fun CameraScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f),
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
         DiagnosticLoggingControl(
@@ -508,7 +513,7 @@ private fun MonitorScreen(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = onBack) { Text("Back") }
@@ -517,6 +522,12 @@ private fun MonitorScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f),
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             ThemeSwitch(darkThemeEnabled, onDarkThemeChanged)
         }
         DiagnosticLoggingControl(
