@@ -165,5 +165,5 @@ Use `:app:assembleDebug` additionally when a complete installable APK is needed.
 - [ ] Back exits full-screen mode without stopping the active Monitor session.
 - [ ] Picture-in-picture places the live Camera output over another app, and expanding it returns to the Monitor UI.
 - [ ] While streaming, move the Camera app to Recents or another app for at least 5 seconds, return to Lan Monitor, and verify video/audio recover without rescanning the QR code or manually reconnecting.
-- [ ] Repeat the foreground-resume test with Diagnostic logging enabled on both devices; check for camera recovery events only when local Camera frames stalled.
+- [ ] Repeat the foreground-resume test with Diagnostic logging enabled on both devices; verify that media renegotiates after resume and that capture stop/start events occur only if local Camera frames stalled.
 - [ ] The role-selection screen displays both the app version and short build commit, matching the GitHub development release tag.
