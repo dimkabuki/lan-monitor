@@ -849,19 +849,20 @@ class LanWebRtcSession(
             install(ServerWebSockets)
             routing {
                 webSocket("/signal") {
-                    // The listener binds all interfaces, but accepts only RFC 1918/link-local IPv4 peers.
-                    val remoteHost = call.request.local.remoteHost
-                    if (!LocalLanAddress.isPrivateIpv4(remoteHost)) {
-                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=non_private_ipv4; remote_host=$remoteHost")
+                    // Use the numeric socket peer address. Ktor's remoteHost can reverse-resolve
+                    // this same LAN peer to a hostname, which is not valid input for the IPv4 guard.
+                    val remoteAddress = call.request.local.remoteAddress
+                    if (!LocalLanAddress.isPrivateIpv4(remoteAddress)) {
+                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=non_private_ipv4; remote_address=$remoteAddress")
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
                         return@webSocket
                     }
                     if (!serverConnectionClaimed.compareAndSet(false, true)) {
-                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=monitor_already_claimed; remote_host=$remoteHost")
+                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=monitor_already_claimed; remote_address=$remoteAddress")
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Only one Monitor is supported in M2"))
                         return@webSocket
                     }
-                    DiagnosticLog.log(role, "camera_socket_opened", "remote_host=$remoteHost")
+                    DiagnosticLog.log(role, "camera_socket_opened", "remote_address=$remoteAddress")
 
                     val outbound = Channel<String>(Channel.UNLIMITED)
                     val sender: (String) -> Unit = { raw ->
@@ -895,7 +896,7 @@ class LanWebRtcSession(
                                     break
                                 }
                                 authenticated = true
-                                DiagnosticLog.log(role, "camera_pairing_accepted", "remote_host=$remoteHost")
+                                DiagnosticLog.log(role, "camera_pairing_accepted", "remote_address=$remoteAddress")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
                                 updateStatus("Monitor paired; negotiating WebRTC.")
                                 scope.launch { createCameraOffer() }
@@ -915,7 +916,7 @@ class LanWebRtcSession(
                             updateStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
                         }
                     } finally {
-                        DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_host=$remoteHost")
+                        DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
                         cameraSender = null
                         outbound.close()
                         writer.cancel()

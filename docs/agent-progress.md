@@ -1,10 +1,10 @@
 # Agent Progress
 
-## Current status — 2026-10-24
+## Current status — 2026-10-25
 
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`.
-- **Current `main` head:** `c191bc8506f49869e1438cbe393b214a2712fbb5`, merged [PR #14](https://github.com/dimkabuki/lan-monitor/pull/14).
-- **Post-merge CI:** Android Development Release [run #40095855484](https://github.com/dimkabuki/lan-monitor/actions/runs/40095855484) succeeded on `c191bc85`, including compile/unit tests and development APK publication.
+- **Current `main` head:** `97e17a82434e483ca4de389da98daa9ea9fc4416`, merged [PR #15](https://github.com/dimkabuki/lan-monitor/pull/15).
+- **Post-merge CI:** Android Development Release [run #40114712596](https://github.com/dimkabuki/lan-monitor/actions/runs/40114712596) succeeded on `97e17a82`, including compile/unit tests and development APK publication.
 - **Merged M5 movement PR:** [PR #11](https://github.com/dimkabuki/lan-monitor/pull/11) adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
@@ -25,5 +25,6 @@
 - **Build baseline:** JDK 17; Gradle Wrapper 8.14.6; Android Gradle Plugin 8.13.2; Kotlin Gradle plugin 2.4.21; compile/target SDK 36; min SDK 33; WebRTC `150.7871.01`; Ktor `3.6.0`; ZXing Android Embedded `4.3.0`.
 - **Merged PR #12 — Monitor foreground controls:** [PR #12](https://github.com/dimkabuki/lan-monitor/pull/12) adds foreground-only `FLAG_KEEP_SCREEN_ON`, remote-audio mute/unmute retained across peer reconnection, focused mute-state unit tests, and updated acceptance/spec docs. Required CI and post-merge development-release workflow passed. No partial wake lock was added.
 - **Merged UI refinement PR #14:** adds a persisted dark-by-default theme switch on role selection and active Camera/Monitor screens, theme-aware system-bar icon contrast, and an adaptive vector launcher icon. Device appearance behavior remains unverified until the owner tests on the target Samsung phones.
-- **Current debugging branch:** [PR #15](https://github.com/dimkabuki/lan-monitor/pull/15), `feat/opt-in-diagnostic-logs`, adds opt-in app logs for Camera/Monitor connection state, mDNS/NSD, WebSocket failures/retries, WebRTC signaling/ICE state and decoded frame progress. Role-specific text files are written to `Download/Lan Monitor/`; pairing tokens, QR/SDP/full ICE payloads and media are excluded. Logs include device/app build and network-capability metadata, and each file is capped at 2 MiB. Logging is off on cold launch and is not telemetry. Latest required Android CI passed on commit `3ec72247` in [run #40106019666](https://github.com/dimkabuki/lan-monitor/actions/runs/40106019666).
-- **Next step:** generate an APK from `feat/opt-in-diagnostic-logs` with Actions → Android CI → Run workflow → enable “Build and upload a debug APK”. Install that same APK on both phones. Reproduce the reconnect failure, stop both sessions, toggle logging OFF on each phone, and collect the two text files from My Files → Downloads → Lan Monitor. Analyze the correlated logs before resuming MVP acceptance. Do not merge PRs automatically.
+- **Merged diagnostic logging PR #15:** opt-in Camera/Monitor logs are available under `Download/Lan Monitor/`; tokens, QR/SDP/full ICE payloads and media are excluded. Files are capped at 2 MiB, with logging off by default.
+- **Root cause found from device logs (2026-10-25):** Camera validated `call.request.local.remoteHost` using the numeric private-IPv4 guard. Ktor CIO can return a reverse-DNS hostname there (`Dmytro-s-S25.fritz.box`) for a LAN socket, so every Monitor WebSocket was rejected before token authentication and WebRTC negotiation.
+- **Current fix branch:** `fix/validate-numeric-peer-address` changes the guard to validate `call.request.local.remoteAddress`, the numeric socket peer, keeps the private IPv4 check, and adds a hostname-regression test. Validate CI and retest on the Galaxy S20 FE + S25 before considering the LAN connection issue resolved. Do not merge PRs automatically.
