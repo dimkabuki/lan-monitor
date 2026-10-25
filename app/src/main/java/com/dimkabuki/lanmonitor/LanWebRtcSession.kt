@@ -101,6 +101,7 @@ class LanWebRtcSession(
     @Volatile private var shutdownRequested = false
     @Volatile private var controllerHasWork = false
     @Volatile private var cameraStartJob: Job? = null
+    @Volatile private var cameraRecoveryJob: Job? = null
 
     internal val hasSessionWork: Boolean
         get() = controllerHasWork
@@ -111,6 +112,7 @@ class LanWebRtcSession(
         get() = shutdownRequested
     @Volatile private var cameraSender: ((String) -> Unit)? = null
     @Volatile private var monitorSender: ((String) -> Unit)? = null
+    @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
     @Volatile private var lastLoggedVideoHealth: Boolean? = null
     @Volatile private var lastMovementAnalysisAtMs = 0L
@@ -155,6 +157,12 @@ class LanWebRtcSession(
             remoteAudioTrack?.setEnabled(!muted)
         }
         updateUi { remoteAudioMuted = muted }
+    }
+
+    private val localVideoHealthSink = object : VideoSink {
+        override fun onFrame(frame: org.webrtc.VideoFrame) {
+            lastLocalVideoFrameAtMs = SystemClock.elapsedRealtime()
+        }
     }
 
     private val remoteVideoHealthSink = object : VideoSink {
@@ -226,6 +234,71 @@ class LanWebRtcSession(
                 }
             MovementNotificationOutcome.FAILED ->
                 updateUi { movementStatus = "Movement detected, but the notification could not be posted." }
+        }
+    }
+
+    fun recoverCameraAfterForegroundReturn() {
+        if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
+
+        val nowMs = SystemClock.elapsedRealtime()
+        val lastFrameAtMs = lastLocalVideoFrameAtMs
+        if (!CameraCaptureRecoveryPolicy.shouldRecover(lastFrameAtMs, nowMs)) return
+        if (cameraRecoveryJob?.isActive == true) return
+
+        val frameAgeMs = lastFrameAtMs.takeIf { it > 0L }?.let { nowMs - it } ?: -1L
+        cameraRecoveryJob = scope.launch {
+            try {
+                val capturer = cameraCapturer ?: return@launch
+                if (!sessionActive || shutdownRequested || disposed) return@launch
+
+                DiagnosticLog.log(
+                    role,
+                    "camera_foreground_resume_recovery_started",
+                    "local_frame_age_ms=${frameAgeMs}; signaling_connected=${cameraSender != null}",
+                )
+                runCatching { capturer.stopCapture() }.onFailure { error ->
+                    DiagnosticLog.log(
+                        role,
+                        "camera_foreground_capture_stop_failed",
+                        "exception=${error.javaClass.simpleName}",
+                    )
+                }
+                if (!currentCoroutineContext().isActive || shutdownRequested || disposed || cameraCapturer !== capturer) {
+                    return@launch
+                }
+
+                val restartResult = runCatching {
+                    capturer.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+                }
+                if (restartResult.isFailure) {
+                    val error = restartResult.exceptionOrNull()
+                    DiagnosticLog.log(
+                        role,
+                        "camera_foreground_capture_restart_failed",
+                        "exception=${error?.javaClass?.simpleName ?: "unknown"}",
+                    )
+                    updateStatus("Could not resume camera capture: ${error?.message ?: "unknown error"}")
+                    return@launch
+                }
+
+                delay(CAMERA_CAPTURE_RECOVERY_SETTLE_MS)
+                if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
+
+                val signalingConnected = cameraSender != null
+                if (signalingConnected) {
+                    updateStatus("Camera capture resumed; refreshing Monitor media connection.")
+                    createCameraOffer()
+                } else {
+                    updateStatus("Camera capture resumed; waiting for Monitor to reconnect.")
+                }
+                DiagnosticLog.log(
+                    role,
+                    "camera_foreground_resume_recovery_completed",
+                    "signaling_connected=${signalingConnected}",
+                )
+            } finally {
+                cameraRecoveryJob = null
+            }
         }
     }
 
@@ -803,6 +876,7 @@ class LanWebRtcSession(
 
             val videoTrack = factory.createVideoTrack("lan-monitor-video", source)
             createdVideoTrack = videoTrack
+            videoTrack.addSink(localVideoHealthSink)
             videoTrack.setEnabled(true)
             val audioSource = factory.createAudioSource(MediaConstraints())
             createdAudioSource = audioSource
@@ -829,6 +903,7 @@ class LanWebRtcSession(
                 if (captureStartAttempted) {
                     runCatching { createdCapturer?.stopCapture() }
                 }
+                runCatching { createdVideoTrack?.removeSink(localVideoHealthSink) }
                 runCatching { createdAudioTrack?.dispose() }
                 runCatching { createdAudioSource?.dispose() }
                 runCatching { createdVideoTrack?.dispose() }
@@ -1344,6 +1419,9 @@ class LanWebRtcSession(
     }
 
     private suspend fun cleanupSession() {
+        cameraRecoveryJob?.cancel()
+        cameraRecoveryJob = null
+        lastLocalVideoFrameAtMs = 0L
         shutdownRequested = true
         ActiveSessionRegistry.unregister(this)
         SessionForegroundService.stop(appContext)
@@ -1367,6 +1445,7 @@ class LanWebRtcSession(
         surfaceTextureHelper = null
         runCatching { videoSource?.dispose() }
         videoSource = null
+        runCatching { localVideoTrack?.removeSink(localVideoHealthSink) }
         runCatching { localVideoTrack?.dispose() }
         localVideoTrack = null
         runCatching { localAudioTrack?.dispose() }
