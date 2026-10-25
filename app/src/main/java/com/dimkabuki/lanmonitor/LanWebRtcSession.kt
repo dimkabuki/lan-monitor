@@ -281,7 +281,7 @@ class LanWebRtcSession(
                     return@launch
                 }
 
-                delay(CAMERA_CAPTURE_RECOVERY_SETTLE_MS)
+                delay(400L)
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
 
                 val signalingConnected = cameraSender != null
