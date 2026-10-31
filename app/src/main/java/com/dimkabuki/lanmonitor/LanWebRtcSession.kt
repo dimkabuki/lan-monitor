@@ -83,6 +83,7 @@ class LanWebRtcSession(
         @Volatile var videoHealthy = false
         @Volatile var localDescriptionSignaled = false
         @Volatile var remoteDescriptionSet = false
+        @Volatile var peerConnectionGeneration = 0L
         @Volatile var peerConnection: PeerConnection? = null
     }
 
@@ -1181,19 +1182,26 @@ class LanWebRtcSession(
         cameraPeer: CameraMonitorPeer? = null,
     ): PeerConnection {
         DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera; peer_id=${cameraPeer?.id ?: "monitor"}")
-        if (isCamera) {
+        val peerGeneration = if (isCamera) {
             val peer = cameraPeer ?: error("Camera peer context is required.")
             check(!peer.closed.get() && peer.joined) { "Camera Monitor peer is no longer active." }
+            // Invalidate callbacks from the previous PeerConnection before disposing it.
+            peer.peerConnectionGeneration += 1
             closeCameraPeerConnection(peer)
             resetCameraPeerDescriptionState(peer)
+            peer.peerConnectionGeneration
         } else {
             check(cameraPeer == null) { "Monitor role cannot use a Camera peer context." }
             closePeerConnection()
             resetDescriptionState()
+            null
         }
         val factory = peerConnectionFactory ?: error("WebRTC is not initialized")
         val configuration = PeerConnection.RTCConfiguration(emptyList())
-        val connection = factory.createPeerConnection(configuration, peerConnectionObserver(cameraPeer))
+        val connection = factory.createPeerConnection(
+            configuration,
+            peerConnectionObserver(cameraPeer, peerGeneration),
+        )
             ?: error("Could not create WebRTC peer connection.")
         if (isCamera) {
             val peer = checkNotNull(cameraPeer)
@@ -1206,12 +1214,27 @@ class LanWebRtcSession(
         return connection
     }
 
-    private fun peerConnectionObserver(cameraPeer: CameraMonitorPeer? = null) = object : PeerConnection.Observer {
+    private fun isCurrentCameraPeerConnection(
+        peer: CameraMonitorPeer?,
+        generation: Long?,
+    ): Boolean =
+        peer == null || (
+            generation != null &&
+                !peer.closed.get() &&
+                peer.peerConnectionGeneration == generation
+            )
+
+    private fun peerConnectionObserver(
+        cameraPeer: CameraMonitorPeer? = null,
+        cameraPeerGeneration: Long? = null,
+    ) = object : PeerConnection.Observer {
         override fun onSignalingChange(newState: PeerConnection.SignalingState) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             DiagnosticLog.log(role, "webrtc_signaling_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             DiagnosticLog.log(role, "webrtc_ice_connection_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
             if (role == AppRole.CAMERA && cameraPeer != null) {
                 if (cameraPeer.closed.get()) return
@@ -1245,14 +1268,17 @@ class LanWebRtcSession(
         }
 
         override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "peer_id=${cameraPeer?.id ?: "monitor"}; receiving=$receiving")
         }
 
         override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             DiagnosticLog.log(role, "webrtc_ice_gathering_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             val candidateType = candidate.sdp.substringAfter(" typ ", "unknown").substringBefore(' ')
             DiagnosticLog.log(
                 role,
