@@ -92,7 +92,7 @@ class LanWebRtcSession(
         private set
     var discoveredCameraAddress by androidx.compose.runtime.mutableStateOf("")
         private set
-    var discoveredCameras by androidx.compose.runtime.mutableStateOf(emptyList<CameraDiscoveryResult>())
+    internal var discoveredCameras by androidx.compose.runtime.mutableStateOf(emptyList<CameraDiscoveryResult>())
         private set
     var movementStatus by androidx.compose.runtime.mutableStateOf("Waiting for Monitor video.")
         private set
@@ -262,7 +262,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_at_resume=${peerAuthenticatedAtResume}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_at_resume=${peerJoinedAtResume}",
                 )
 
                 if (captureStalled) {
@@ -295,7 +295,7 @@ class LanWebRtcSession(
 
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
                 val signalingConnected =
-                    peerAuthenticatedAtResume &&
+                    peerJoinedAtResume &&
                         senderAtResume != null &&
                         cameraSender === senderAtResume &&
                         cameraPeerJoined
