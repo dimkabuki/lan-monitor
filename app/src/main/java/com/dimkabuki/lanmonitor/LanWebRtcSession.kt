@@ -1147,15 +1147,15 @@ class LanWebRtcSession(
             val peerGeneration = peer.peerConnectionGeneration
             connection.createOffer(
                 createSdpObserver(
-                    onCreateSuccess = { description ->
+                    onCreateSuccess = offerCreated@{ description ->
                         if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
-                            return@createSdpObserver
+                            return@offerCreated
                         }
                         connection.setLocalDescription(
                             createSdpObserver(
-                                onSetSuccess = {
+                                onSetSuccess = offerSet@{
                                     if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
-                                        return@createSdpObserver
+                                        return@offerSet
                                     }
                                     publishLocalDescription("offer", description, cameraPeer = peer)
                                 },
@@ -1167,9 +1167,9 @@ class LanWebRtcSession(
                             description,
                         )
                     },
-                    onFailure = {
+                    onFailure = offerCreationFailed@{
                         if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
-                            return@createSdpObserver
+                            return@offerCreationFailed
                         }
                         DiagnosticLog.log(role, "webrtc_offer_creation_failed", "peer_id=${peer.id}; error=$it")
                         updateStatus("Could not create offer for Monitor ${peer.id.take(8)}: $it")
@@ -1184,7 +1184,6 @@ class LanWebRtcSession(
                 "peer_id=${peer.id}; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
             )
             updateStatus("Could not start WebRTC for Monitor ${peer.id.take(8)}: ${error.message ?: error.javaClass.simpleName}")
-            releaseCameraPeer(peer)
         }
     }
 
