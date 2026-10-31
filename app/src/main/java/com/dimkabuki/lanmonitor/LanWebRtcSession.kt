@@ -244,10 +244,10 @@ class LanWebRtcSession(
         if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
         if (cameraRecoveryJob?.isActive == true) return
 
-        // Only renegotiate with the same peer that was already authenticated when the Activity resumed.
+        // Only renegotiate with the same peer that had already joined when the Activity resumed.
         // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
         val senderAtResume = cameraSender
-        val peerAuthenticatedAtResume = cameraPeerJoined
+        val peerJoinedAtResume = cameraPeerJoined
         cameraRecoveryJob = scope.launch {
             try {
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
