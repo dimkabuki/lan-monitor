@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.18  
-**Date:** 2026-10-25  
-**Status:** M0–M5 implementation slices through PR #12 and UI refinement PR #14 are merged. The app has a persistent dark-by-default theme switch and a colorful adaptive launcher icon. Opt-in, privacy-filtered diagnostic logging is merged in PR #15. The Camera validates incoming signaling peers against Ktor's numeric socket address (`remoteAddress`), not `remoteHost`, which can be reverse-resolved to a hostname. Physical integration, audio, screen lifecycle, movement and appearance acceptance remain to be verified.  
+**Version:** 1.19  
+**Date:** 2026-10-31  
+**Status:** The app supports unpaired LAN discovery and tokenless Monitor joins on trusted private IPv4 networks. QR/token pairing remains optional. The Camera still accepts only one Monitor in the current implementation; per-Monitor WebRTC isolation is required before the two-Monitor target is met. Physical integration, audio, screen lifecycle, movement, discovery and appearance acceptance remain to be verified.
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -72,10 +72,10 @@ Preferred stack:
 The initial M2 implementation was merged through [PR #3](https://github.com/dimkabuki/lan-monitor/pull/3) at `e48dc2dfc7610ba72216cdab138ba7ddde5751a5`; token and video-health policies were then covered in [PR #4](https://github.com/dimkabuki/lan-monitor/pull/4), merged at `32a83d873544c66c32fa76eab4c6bb154179babd`. Initial QR-based pairing was merged through [PR #5](https://github.com/dimkabuki/lan-monitor/pull/5). [PR #6](https://github.com/dimkabuki/lan-monitor/pull/6) adds DNS-SD/mDNS advertising and discovery based on the stable Camera identity. [PR #7](https://github.com/dimkabuki/lan-monitor/pull/7) adds active-session signaling retries, endpoint refresh from matching discovery results, and WebRTC rebuild after ICE failure or sustained frame stall. This implementation snapshot does not replace the target requirements in this specification:
 
 - Camera starts rear-camera/microphone capture after explicit user action and permission grants, then hosts a local Ktor WebSocket signaling endpoint on port 8765.
-- Monitor can scan a Camera QR code to import pairing details or enter the private IPv4 address and temporary in-memory token manually. The versioned QR URI contains a persistent local Camera UUID, current private IPv4 address hints, the fixed signaling port and the session token. The Camera accepts one Monitor at a time and rejects invalid tokens and peers whose remote address is not a private IPv4 address.
+- Monitor can search all Lan Monitor Camera advertisements before pairing and connect to a selected private IPv4 endpoint without a QR code or token. QR scanning and manual IP/token entry remain optional paired-flow alternatives. A non-empty token must match the current Camera session; an empty token intentionally selects open LAN mode. The Camera accepts one Monitor at a time in the current implementation and rejects peers whose numeric socket address is not an accepted private/link-local IPv4 address.
 - Offer/answer SDP and ICE candidates are exchanged over `ws://`; WebRTC media is intended to flow directly between devices, with no STUN/TURN server list.
 - The first implementation uses 640×480 at 15 fps and sends periodic Monitor health signals based on decoded video-frame progress. It must not claim healthy media from ICE state alone.
-- QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. After Monitor scans a QR, it validates service identity/version and private IPv4 before updating the target; the token is never broadcast in discovery. Active-session recovery retries signaling with bounded exponential backoff and rebuilds WebRTC after ICE failure or a sustained frame stall; the 15-second recovery target still requires physical validation.
+- QR generation/scanning and strict versioned payload parsing are merged. Camera advertises its stable UUID and protocol version over local DNS-SD/mDNS. Monitor can resolve all Lan Monitor service records without a QR-supplied identity, or restrict discovery to a previously selected identity. Both paths validate protocol version, canonical identity and private IPv4 address; the token is never broadcast in discovery. Active-session recovery retries signaling with bounded exponential backoff and rebuilds WebRTC after ICE failure or a sustained frame stall; the 15-second recovery target still requires physical validation.
 - PR #8 introduced typed Camera/Monitor foreground services, an ongoing Stop notification, contextual notification-permission requests and stop-on-task-removal behavior. PR #9 moves controller retention into a process-level store: the foreground service holds a strong reference and screen disposal detaches only the renderer. The same in-memory session can be reattached after Activity recreation while the process/service remain alive. Controller state is not persisted across process death, and the service is `START_NOT_STICKY`; background/screen-off behavior remains subject to physical validation. Camera media-resource acquisition is transactional: failures before ownership transfer stop any attempted capture and dispose partially created tracks, sources, helpers and capturer resources.
 - The local signaling channel is unencrypted in this prototype. Use it only on a trusted home LAN. Physical video/audio success must be tested on actual Android devices and is not established by a green CI run.
 
@@ -101,12 +101,12 @@ The initial M2 implementation was merged through [PR #3](https://github.com/dimk
 1. User opens the APK and chooses **Camera** or **Monitor**.
 2. Camera requests the necessary permissions and the user taps **Start Camera**.
 3. Camera starts signaling and local service discovery, then displays a QR code.
-4. Monitor scans that code and saves the stable camera/session identity and pairing token.
-5. After first pairing, Monitor must rediscover the same Camera after a DHCP address change or brief Wi-Fi outage, without scanning a new QR code.
+4. On Monitor, either tap Search Cameras on LAN and connect to a discovered Camera without credentials, or scan the optional QR to select the paired-token flow.
+5. During an active session, Monitor rediscovers the selected Camera after a DHCP address change or brief Wi-Fi outage, without scanning a new QR code.
 6. If mDNS/DNS-SD is unavailable, show a clear status and offer a manual local-address connection or refreshed QR code as a fallback. Never display “Connected” unless media health confirms it.
 7. On stop, close WebRTC peer connections and sockets, unregister discovery, stop capture and audio, stop services, release wake locks, and free decoder resources.
 
-The QR payload must not depend solely on the current IP address. It must contain or reference the stable pairing identity and secret needed for rediscovery and reconnection. Re-pairing may be required if app data is cleared or the Camera identity/token is reset.
+The optional QR payload must not depend solely on the current IP address. It contains a stable Camera identity and a session token for the paired-token flow. Open LAN discovery uses the stable advertised identity and does not require the QR or token. Re-pairing is not required for open LAN discovery if app data is cleared; the Camera identity changes, but the new advertisement can still be discovered.
 
 ## 5. Functional requirements
 
