@@ -58,6 +58,11 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 
 ### Appearance and launcher icon
 
+- [ ] Camera Start/Stop is one prominent state-dependent control at the top of the screen.
+- [ ] Monitor puts Search Cameras or Stop Monitoring in the primary action position.
+- [ ] The normal Camera and Monitor workflows fit on one screen at the default font/display settings without scrolling to reach primary actions.
+- [ ] QR/manual connection setup and diagnostic logging are available as secondary dialogs rather than pushing main actions below the fold.
+- [ ] Icon-led controls retain clear text labels or accessibility descriptions and at least 48 dp touch targets.
 - [ ] A fresh install opens in dark theme regardless of the Android system theme.
 - [ ] The Dark theme switch is visible on role selection and remains available while Camera or Monitor is active.
 - [ ] Switching themes updates the app immediately and does not stop an active session.
