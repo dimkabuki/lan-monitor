@@ -1,8 +1,8 @@
 # Lan Monitor for Android — Technical Specification
 
-**Version:** 1.19  
+**Version:** 1.20  
 **Date:** 2026-10-31  
-**Status:** The app supports unpaired LAN discovery and tokenless Monitor joins on trusted private IPv4 networks. QR/token pairing remains optional. The Camera still accepts only one Monitor in the current implementation; per-Monitor WebRTC isolation is required before the two-Monitor target is met. Physical integration, audio, screen lifecycle, movement, discovery and appearance acceptance remain to be verified.
+**Status:** The app supports unpaired LAN discovery, tokenless Monitor joins and up to two simultaneous Monitor peers. Each Camera-side Monitor has independent WebRTC and signaling state while sharing the Camera capture tracks. Physical multi-Monitor integration, audio, screen lifecycle, movement, discovery and appearance acceptance remain to be verified.
 **Application name:** Lan Monitor  
 **Repository:** https://github.com/dimkabuki/lan-monitor  
 **Purpose:** Personal use on one home Wi-Fi LAN. No app-store publication is planned.
@@ -91,7 +91,9 @@ The initial M2 implementation was merged through [PR #3](https://github.com/dimk
 ### 3.2. Device and session model
 
 - One active Camera per session; support up to two Monitor devices.
-- Each Monitor receives its own direct WebRTC peer connection. Failure or disconnect of one Monitor must not terminate the other Monitor's stream.
+- Each Monitor receives its own direct WebRTC peer connection, outbound signaling channel, SDP state and ICE candidate queues. The Camera capture tracks are shared as send-only sources, not as a shared PeerConnection.
+- A disconnect, ICE failure or reconnect of one Monitor must not close, renegotiate or overwrite the other Monitor's peer state.
+- The Camera admits at most two concurrent signaling peers and releases that slot only after the disconnected peer's PeerConnection is disposed.
 - Camera remains available for reconnection while its user-started session remains active.
 - Each camera session has a unique session ID and a cryptographically random local pairing token. The token is only for local pairing, not a user account. Store locally as needed and do not log or commit the token.
 - Do not start multiple duplicate camera services, signaling servers, peer connections, or wake locks as a result of repeated start commands.
@@ -373,7 +375,7 @@ A release APK may be signed later, once the owner provides/configures a stable s
 - **M3 — Pairing and discovery: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #5 provides versioned QR pairing and manual fallback. PR #6 adds stable-identity NSD/DNS-SD discovery. PR #7 adds initial active-session reconnection; physical recovery timing remains unverified.
 - **M4 — Lifecycle: IMPLEMENTATION MERGED; ACCEPTANCE PENDING.** PR #8 adds typed foreground-service scaffolding, PR #9 adds process-level controller retention/service references and Activity/Compose reattachment, and PR #10 makes Camera media startup cleanup transactional. Process-death recovery and physical background/screen-off acceptance remain pending.
 - **M5 — Media health and movement: IMPLEMENTATION IN PROGRESS; ACCEPTANCE PENDING.** Movement alerts sample decoded Monitor luma frames, apply brightness compensation and temporal confirmation, and post Android notifications with an 8-second cooldown. This PR adds foreground-only screen-on behavior and local remote-audio mute/unmute. Physical audio/lifecycle verification and false-positive/latency tuning remain outstanding; introduce a partial wake lock only if device testing demonstrates a need.
-- **M6 — Adaptation and resilience:** quality adaptation, two Monitors, detailed retry/backoff and diagnostics.
+- **M6 — Adaptation and resilience:** quality adaptation, detailed retry/backoff and diagnostics. Two-Monitor signaling and peer isolation are implemented; physical two-Monitor acceptance remains pending.
 - **M7 — Acceptance and release:** test both device assignments, no-WAN mode, Wi-Fi recovery, 3-hour runs, documentation and installable APK artifacts.
 
 M0/M1/M2, QR pairing (PR #5), local discovery (PR #6), active-session recovery (PR #7), foreground-service scaffolding (PR #8), session-controller retention (PR #9), and transactional Camera startup cleanup (PR #10) are merged into `main`. PR #9 adds a process-level controller store shared by Compose and the foreground service so an active in-memory session can survive screen disposal and Activity recreation while the process remains alive. It does not implement recovery after process death. Physical integration tests are intentionally grouped for the MVP acceptance phase; until that phase, report device-only criteria as `NOT TESTED`, never as passed. Keep each implementation slice in its own PR, and inspect actual CI results before moving to the next slice.
