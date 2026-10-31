@@ -408,13 +408,13 @@ private fun CameraScreen(
             NotificationPermissionNotice(context = context, visible = true)
         }
         if (pairingQrBitmap != null) {
-            Text("Scan to pair", style = MaterialTheme.typography.titleMedium)
+            Text("Optional QR pairing", style = MaterialTheme.typography.titleMedium)
             Image(
                 bitmap = pairingQrBitmap.asImageBitmap(),
-                contentDescription = "Lan Monitor Camera pairing QR code",
+                contentDescription = "Optional Lan Monitor Camera pairing QR code",
                 modifier = Modifier.size(220.dp),
             )
-            Text("Scan this code on the Monitor device. It contains the current LAN address hints and temporary pairing secret.")
+            Text("LAN discovery does not require this QR code. It remains available for the paired-token connection flow.")
         } else if (session.pairingPayload.isNotBlank()) {
             Text("Pairing QR code could not be generated. Use the manual address/token fields on Monitor.")
         }
@@ -509,6 +509,24 @@ private fun MonitorScreen(
         if (connectAfterNotificationPrompt) {
             connectAfterNotificationPrompt = false
             session.connectToCamera(host.trim(), token.trim())
+        }
+    }
+
+    val connectToSelectedCamera: (String, String?) -> Unit = { selectedHost, cameraId ->
+        host = selectedHost
+        token = ""
+        if (!cameraId.isNullOrBlank()) {
+            pairedCameraId = cameraId
+            session.discoverPairedCamera(cameraId)
+        }
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            connectAfterNotificationPrompt = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            session.connectToCamera(selectedHost, "")
         }
     }
 
@@ -609,6 +627,33 @@ private fun MonitorScreen(
 
             if (!compactVideoMode) {
                 Button(
+                    onClick = session::discoverCameras,
+                    enabled = !session.isBusy && !session.sessionActive,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Search Cameras on LAN")
+                }
+                Text("Available Cameras", style = MaterialTheme.typography.titleMedium)
+                Text(session.discoveryStatus, style = MaterialTheme.typography.bodySmall)
+                session.discoveredCameras.forEach { camera ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Camera ${camera.cameraId.take(8)}")
+                            Text(camera.address, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Button(
+                            onClick = { connectToSelectedCamera(camera.address, camera.cameraId) },
+                            enabled = !session.isBusy && !session.sessionActive,
+                        ) {
+                            Text("Connect")
+                        }
+                    }
+                }
+                Button(
                     onClick = {
                         DiagnosticLog.log(AppRole.MONITOR, "pairing_qr_scan_requested")
                         if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -652,7 +697,7 @@ private fun MonitorScreen(
                 OutlinedTextField(
                     value = token,
                     onValueChange = { token = it },
-                    label = { Text("Temporary pairing token") },
+                    label = { Text("Temporary pairing token (optional)") },
                     singleLine = true,
                     enabled = !session.isBusy && !session.sessionActive,
                     modifier = Modifier.fillMaxWidth(),
@@ -669,7 +714,7 @@ private fun MonitorScreen(
                             session.connectToCamera(host.trim(), token.trim())
                         }
                     },
-                    enabled = !session.isBusy && !session.sessionActive && host.isNotBlank() && token.isNotBlank(),
+                    enabled = !session.isBusy && !session.sessionActive && host.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(if (session.isBusy) "Connecting…" else "Connect to Camera")
@@ -714,11 +759,11 @@ private fun MonitorScreen(
                 Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
                 Text("Movement alerts: ${session.movementStatus}", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "Scanning by Camera identity only updates the connection address. If local discovery is unavailable, use the address embedded in the QR or type an address manually.",
+                    "Search LAN to discover Cameras without QR scanning. Selecting a Camera connects without a token; QR scanning and the optional token remain available as a paired connection flow.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Use a private LAN IPv4 address and the temporary token shown by Camera. Video and audio travel directly over WebRTC; this app configures no STUN/TURN or cloud signaling.",
+                    "Open LAN connections are accepted from private IPv4 addresses on the local network. Use only a trusted home Wi-Fi network. Video and audio travel directly over WebRTC; no STUN/TURN or cloud signaling is configured.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 DiagnosticLoggingControl(
