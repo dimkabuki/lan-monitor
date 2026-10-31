@@ -777,51 +777,39 @@ private fun MonitorScreen(
         }
     }
 
-    if (compactVideoMode) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
-                factory = { viewContext ->
-                    SurfaceViewRenderer(viewContext).also {
-                        renderer = it
-                        session.attachRenderer(it, local = false)
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-            IconButton(
-                onClick = { fullScreen = false },
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp),
-            ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Exit full screen")
-            }
-        }
-    } else {
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            RoleScreenHeader(
-                title = "Monitor",
-                onBack = onBack,
-                darkThemeEnabled = darkThemeEnabled,
-                onDarkThemeChanged = onDarkThemeChanged,
-            )
-
-            if (showActiveSession) {
-                PrimaryActionButton(
-                    label = if (session.isBusy && !session.sessionActive) "Connecting…" else "Stop monitoring",
-                    icon = Icons.Filled.Stop,
-                    onClick = session::stopSession,
-                    enabled = true,
-                    destructive = true,
-                )
+            modifier = if (compactVideoMode) {
+                Modifier.fillMaxSize()
             } else {
-                PrimaryActionButton(
-                    label = "Search cameras on LAN",
-                    icon = Icons.Filled.Search,
-                    onClick = session::discoverCameras,
-                    enabled = !session.isBusy,
+                Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)
+            },
+            verticalArrangement = if (compactVideoMode) Arrangement.Top else Arrangement.spacedBy(10.dp),
+        ) {
+            if (!compactVideoMode) {
+                RoleScreenHeader(
+                    title = "Monitor",
+                    onBack = onBack,
+                    darkThemeEnabled = darkThemeEnabled,
+                    onDarkThemeChanged = onDarkThemeChanged,
                 )
+
+                if (showActiveSession) {
+                    PrimaryActionButton(
+                        label = if (session.isBusy && !session.sessionActive) "Connecting…" else "Stop monitoring",
+                        icon = Icons.Filled.Stop,
+                        onClick = session::stopSession,
+                        enabled = true,
+                        destructive = true,
+                    )
+                } else {
+                    PrimaryActionButton(
+                        label = "Search cameras on LAN",
+                        icon = Icons.Filled.Search,
+                        onClick = session::discoverCameras,
+                        enabled = !session.isBusy,
+                    )
+                }
             }
 
             AndroidView(
@@ -831,14 +819,14 @@ private fun MonitorScreen(
                         session.attachRenderer(it, local = false)
                     }
                 },
-                modifier = if (showActiveSession) {
-                    Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
-                } else {
-                    Modifier.size(1.dp)
+                modifier = when {
+                    compactVideoMode -> Modifier.fillMaxSize()
+                    showActiveSession -> Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
+                    else -> Modifier.size(1.dp)
                 },
             )
 
-            if (showActiveSession) {
+            if (!compactVideoMode && showActiveSession) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -887,13 +875,23 @@ private fun MonitorScreen(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(session.status, style = MaterialTheme.typography.bodyMedium)
+                        Text(session.status, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
                         Text(
                             session.movementStatus,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
                         )
-                        NotificationPermissionNotice(context = context, visible = true)
+                        if (
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            Text(
+                                "Notifications are disabled.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
 
@@ -918,7 +916,7 @@ private fun MonitorScreen(
                         Text("Diagnostics")
                     }
                 }
-            } else {
+            } else if (!compactVideoMode) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -958,7 +956,7 @@ private fun MonitorScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Camera ${camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
+                                        Text("Camera {camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
                                         Text(camera.address, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Button(
@@ -997,6 +995,15 @@ private fun MonitorScreen(
                         Text("Diagnostics")
                     }
                 }
+            }
+        }
+
+        if (compactVideoMode) {
+            IconButton(
+                onClick = { fullScreen = false },
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Exit full screen")
             }
         }
     }
