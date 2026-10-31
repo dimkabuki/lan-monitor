@@ -97,7 +97,7 @@ internal class LocalCameraNsd(context: Context) {
                 "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
             )
             registrationListener = null
-            report(onStatus, "Local discovery unavailable. Use QR/manual pairing.")
+            report(onStatus, "Local discovery unavailable. Enter a Camera address or use QR pairing.")
         }
     }
 
@@ -118,9 +118,9 @@ internal class LocalCameraNsd(context: Context) {
         val generation = synchronized(this) {
             discoveryGeneration += 1
             resolvingNames.clear()
-            resolvedCameraIds.clear()
             discoveryGeneration
         }
+        synchronized(resolvedCameraIds) { resolvedCameraIds.clear() }
         acquireLegacyMulticastLock(onStatus)
 
         val listener = object : NsdManager.DiscoveryListener {
@@ -177,7 +177,7 @@ internal class LocalCameraNsd(context: Context) {
                             DiagnosticLog.log(
                                 AppRole.MONITOR,
                                 "nsd_service_resolved",
-                                "address=${address ?: "missing"}; identity_matches=${advertisedId == expectedCameraId}",
+                                "address=${address ?: "missing"}; identity_matches=${expectedCameraId == null || advertisedId == expectedCameraId}",
                             )
                             val selected = if (expectedCameraId == null) {
                                 CameraDiscoveryPolicy.selectDiscoveredCamera(advertisedId, address)
@@ -211,7 +211,7 @@ internal class LocalCameraNsd(context: Context) {
                         "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
                     )
                     synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
-                    reportForGeneration(generation, onStatus, "Local Camera lookup failed. Use the QR address or manual fallback.")
+                    reportForGeneration(generation, onStatus, "Local Camera lookup failed. Enter a Camera address or use QR pairing.")
                 }
             }
 
