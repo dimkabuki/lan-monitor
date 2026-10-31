@@ -1097,28 +1097,70 @@ class LanWebRtcSession(
         DiagnosticLog.log(role, "camera_signaling_server_started", "port=$SIGNAL_PORT")
     }
 
-    private fun createCameraOffer() {
-        DiagnosticLog.log(role, "webrtc_offer_creation_started")
+    private fun admitCameraPeer(peer: CameraMonitorPeer): Boolean {
+        if (role != AppRole.CAMERA || shutdownRequested || disposed) return false
+        if (!cameraPeerAdmission.tryAdmit(peer.id)) return false
+        val previous = cameraPeers.putIfAbsent(peer.id, peer)
+        if (previous != null) {
+            cameraPeerAdmission.release(peer.id)
+            return false
+        }
+        return true
+    }
+
+    private fun releaseCameraPeer(peer: CameraMonitorPeer) {
+        if (!peer.closed.compareAndSet(false, true)) return
+        peer.joined = false
+        closeCameraPeerConnection(peer)
+        cameraPeers.remove(peer.id, peer)
+        cameraPeerAdmission.release(peer.id)
+        updateCameraMonitorCount()
+        if (!shutdownRequested && !disposed && role == AppRole.CAMERA) {
+            val remaining = currentJoinedMonitorCount()
+            updateStatus(
+                if (remaining == 0) {
+                    "Monitor disconnected. Waiting for Monitor."
+                } else {
+                    "Monitor disconnected; $remaining Monitor(s) remain connected."
+                },
+            )
+        }
+    }
+
+    private fun currentJoinedMonitorCount(): Int =
+        cameraPeers.values.count { it.joined && !it.closed.get() }
+
+    private fun updateCameraMonitorCount() {
+        val count = currentJoinedMonitorCount()
+        updateUi { connectedMonitorCount = count }
+    }
+
+    private fun createCameraOffer(peer: CameraMonitorPeer) {
+        if (role != AppRole.CAMERA || peer.closed.get() || !peer.joined || cameraPeers[peer.id] !== peer) {
+            DiagnosticLog.log(role, "webrtc_offer_skipped", "peer_id=${peer.id}; reason=peer_not_active")
+            return
+        }
+        DiagnosticLog.log(role, "webrtc_offer_creation_started", "peer_id=${peer.id}")
         try {
-            resetDescriptionState()
-            val connection = createPeerConnection(isCamera = true)
+            val connection = createPeerConnection(isCamera = true, cameraPeer = peer)
             connection.createOffer(
                 createSdpObserver(
                     onCreateSuccess = { description ->
+                        if (peer.closed.get() || peer.peerConnection !== connection) return@createSdpObserver
                         connection.setLocalDescription(
                             createSdpObserver(
-                                onSetSuccess = { publishLocalDescription("offer", description) },
+                                onSetSuccess = { publishLocalDescription("offer", description, cameraPeer = peer) },
                                 onFailure = {
-                                    DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "error=$it")
-                                    updateStatus("Could not set local offer: $it")
+                                    DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "peer_id=${peer.id}; error=$it")
+                                    updateStatus("Could not set local offer for Monitor ${peer.id.take(8)}: $it")
                                 },
                             ),
                             description,
                         )
                     },
                     onFailure = {
-                        DiagnosticLog.log(role, "webrtc_offer_creation_failed", "error=$it")
-                        updateStatus("Could not create offer: $it")
+                        DiagnosticLog.log(role, "webrtc_offer_creation_failed", "peer_id=${peer.id}; error=$it")
+                        updateStatus("Could not create offer for Monitor ${peer.id.take(8)}: $it")
                     },
                 ),
                 MediaConstraints(),
@@ -1127,24 +1169,39 @@ class LanWebRtcSession(
             DiagnosticLog.log(
                 role,
                 "webrtc_offer_start_failed",
-                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                "peer_id=${peer.id}; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
             )
-            updateStatus("Could not start WebRTC offer: ${error.message ?: error.javaClass.simpleName}")
+            updateStatus("Could not start WebRTC for Monitor ${peer.id.take(8)}: ${error.message ?: error.javaClass.simpleName}")
+            releaseCameraPeer(peer)
         }
     }
 
-    private fun createPeerConnection(isCamera: Boolean): PeerConnection {
-        DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera")
-        closePeerConnection()
-        resetDescriptionState()
+    private fun createPeerConnection(
+        isCamera: Boolean,
+        cameraPeer: CameraMonitorPeer? = null,
+    ): PeerConnection {
+        DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera; peer_id=${cameraPeer?.id ?: "monitor"}")
+        if (isCamera) {
+            val peer = cameraPeer ?: error("Camera peer context is required.")
+            check(!peer.closed.get() && peer.joined) { "Camera Monitor peer is no longer active." }
+            closeCameraPeerConnection(peer)
+            resetCameraPeerDescriptionState(peer)
+        } else {
+            check(cameraPeer == null) { "Monitor role cannot use a Camera peer context." }
+            closePeerConnection()
+            resetDescriptionState()
+        }
         val factory = peerConnectionFactory ?: error("WebRTC is not initialized")
         val configuration = PeerConnection.RTCConfiguration(emptyList())
-        val connection = factory.createPeerConnection(configuration, peerConnectionObserver())
+        val connection = factory.createPeerConnection(configuration, peerConnectionObserver(cameraPeer))
             ?: error("Could not create WebRTC peer connection.")
-        peerConnection = connection
         if (isCamera) {
+            val peer = checkNotNull(cameraPeer)
+            peer.peerConnection = connection
             connection.addTrack(localVideoTrack ?: error("Camera video is not ready."), listOf(STREAM_ID))
             connection.addTrack(localAudioTrack ?: error("Camera microphone is not ready."), listOf(STREAM_ID))
+        } else {
+            peerConnection = connection
         }
         return connection
     }
