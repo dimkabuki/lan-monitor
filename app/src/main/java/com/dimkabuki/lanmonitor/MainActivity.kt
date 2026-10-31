@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Fullscreen
@@ -504,7 +506,7 @@ private fun CameraScreen(
                 }
                 if (session.sessionActive) {
                     Text(
-                        "Connected Monitors: {session.connectedMonitorCount}/{CameraPeerAdmissionPolicy.MAX_MONITORS}",
+                        "Connected Monitors: ${session.connectedMonitorCount}/${CameraPeerAdmissionPolicy.MAX_MONITORS}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -561,7 +563,7 @@ private fun CameraScreen(
                     if (session.cameraAddresses.isNotEmpty()) {
                         Text("Camera addresses", style = MaterialTheme.typography.titleSmall)
                         Text(session.cameraAddresses.joinToString(separator = "\n"))
-                        Text("Signaling port: {LanWebRtcSession.SIGNAL_PORT}")
+                        Text("Signaling port: ${LanWebRtcSession.SIGNAL_PORT}")
                     }
                     if (session.pairingToken.isNotEmpty()) {
                         Text("Temporary pairing token", style = MaterialTheme.typography.titleSmall)
@@ -643,7 +645,7 @@ private fun MonitorScreen(
                 DiagnosticLog.log(
                     AppRole.MONITOR,
                     "pairing_qr_decoded",
-                    "address_hint_count={pairing.addresses.size}; camera_identity_present={pairing.cameraId.isNotBlank()}",
+                    "address_hint_count=${pairing.addresses.size}; camera_identity_present=${pairing.cameraId.isNotBlank()}",
                 )
                 host = pairing.addresses.first()
                 token = pairing.token
@@ -956,7 +958,7 @@ private fun MonitorScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Camera {camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
+                                        Text("Camera ${camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
                                         Text(camera.address, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Button(
