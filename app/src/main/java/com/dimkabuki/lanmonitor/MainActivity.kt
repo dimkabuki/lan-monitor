@@ -483,7 +483,7 @@ private fun CameraScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        R.drawable.ic_videocam,
+                        painterResource(R.drawable.ic_videocam),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                     )
@@ -833,7 +833,9 @@ private fun MonitorScreen(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
                         Icon(
-                            if (session.remoteAudioMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up,
+                            painterResource(
+                                if (session.remoteAudioMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up,
+                            ),
                             contentDescription = null,
                         )
                         Spacer(Modifier.size(6.dp))
