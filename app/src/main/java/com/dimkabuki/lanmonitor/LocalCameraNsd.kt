@@ -13,11 +13,19 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
+ * A Camera discovered through the Lan Monitor DNS-SD service.
+ */
+internal data class CameraDiscoveryResult(
+    val cameraId: String,
+    val address: String,
+)
+
+/**
  * Small lifecycle-bound adapter for local DNS-SD/mDNS.
  *
- * The advertised TXT record contains only a stable random Camera ID and protocol version. It never
- * broadcasts the pairing token. Discovery results are accepted only when the ID matches the QR
- * pairing and the resolved endpoint is a private/link-local IPv4 address.
+ * Camera advertisements contain only a stable random identity and protocol version. Discovery can
+ * either match a previously paired identity or list every valid Lan Monitor Camera on the LAN.
+ * Resolved endpoints must always be private/link-local IPv4 addresses.
  */
 internal class LocalCameraNsd(context: Context) {
     private val appContext = context.applicationContext
@@ -30,6 +38,7 @@ internal class LocalCameraNsd(context: Context) {
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var discoveryGeneration = 0
     private val resolvingNames = mutableSetOf<String>()
+    private val resolvedCameraIds = mutableMapOf<String, String>()
     private var multicastLock: WifiManager.MulticastLock? = null
 
     fun startAdvertising(
@@ -93,22 +102,23 @@ internal class LocalCameraNsd(context: Context) {
     }
 
     fun startDiscovery(
-        expectedCameraId: String,
-        onFound: (String) -> Unit,
-        onLost: () -> Unit,
+        expectedCameraId: String?,
+        onFound: (CameraDiscoveryResult) -> Unit,
+        onLost: (String) -> Unit,
         onStatus: (String) -> Unit,
     ) {
         if (closed) return
-        DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_requested", "paired_identity_present=${expectedCameraId.isNotBlank()}")
+        DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_requested", "paired_identity_present=${!expectedCameraId.isNullOrBlank()}")
         val nsdManager = manager ?: run {
             DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_unavailable", "reason=nsd_manager_missing")
-            report(onStatus, "Android local network discovery is unavailable. Use the QR address or manual fallback.")
+            report(onStatus, "Android local network discovery is unavailable. Enter a Camera address or use QR pairing.")
             return
         }
         stopDiscovery()
         val generation = synchronized(this) {
             discoveryGeneration += 1
             resolvingNames.clear()
+            resolvedCameraIds.clear()
             discoveryGeneration
         }
         acquireLegacyMulticastLock(onStatus)
@@ -116,12 +126,17 @@ internal class LocalCameraNsd(context: Context) {
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {
                 DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_started", "service_type=$serviceType")
-                reportForGeneration(generation, onStatus, "Searching for paired Camera on the local network…")
+                val message = if (expectedCameraId == null) {
+                    "Searching for Lan Monitor Cameras on the local network…"
+                } else {
+                    "Searching for the paired Camera on the local network…"
+                }
+                reportForGeneration(generation, onStatus, message)
             }
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 DiagnosticLog.log(AppRole.MONITOR, "nsd_discovery_start_failed", "error_code=$errorCode; service_type=$serviceType")
-                reportForGeneration(generation, onStatus, "Local discovery could not start (error $errorCode). Use the QR address or manual fallback.")
+                reportForGeneration(generation, onStatus, "Local discovery could not start (error $errorCode). Enter a Camera address or use QR pairing.")
                 runCatching { nsdManager.stopServiceDiscovery(this) }
                 releaseMulticastLock()
             }
@@ -129,9 +144,12 @@ internal class LocalCameraNsd(context: Context) {
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (!matchesServiceType(serviceInfo.serviceType)) return
                 val serviceName = serviceInfo.serviceName ?: return
-                // Service names include the stable ID as a discovery hint; resolved TXT identity
-                // is still authoritative, and the temporary pairing secret is never advertised.
-                if (!serviceName.startsWith("lanmonitor-$expectedCameraId")) return
+                // The service name is only a discovery hint. The resolved TXT identity is
+                // authoritative; the temporary pairing secret is never advertised.
+                val matchesExpectedCamera = expectedCameraId?.let {
+                    serviceName.startsWith("lanmonitor-$it")
+                } ?: serviceName.startsWith("lanmonitor-")
+                if (!matchesExpectedCamera) return
                 val shouldResolve = synchronized(resolvingNames) { resolvingNames.add(serviceName) }
                 if (!shouldResolve) return
                 DiagnosticLog.log(AppRole.MONITOR, "nsd_matching_service_found")
@@ -161,19 +179,28 @@ internal class LocalCameraNsd(context: Context) {
                                 "nsd_service_resolved",
                                 "address=${address ?: "missing"}; identity_matches=${advertisedId == expectedCameraId}",
                             )
-                            val selected = CameraDiscoveryPolicy.selectAddress(
-                                expectedCameraId = expectedCameraId,
-                                advertisedCameraId = advertisedId,
-                                candidateAddress = address,
-                            )
-                            if (selected != null) {
-                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_accepted", "private_ipv4=$selected")
+                            val selected = if (expectedCameraId == null) {
+                                CameraDiscoveryPolicy.selectDiscoveredCamera(advertisedId, address)
+                            } else {
+                                CameraDiscoveryPolicy.selectAddress(
+                                    expectedCameraId = expectedCameraId,
+                                    advertisedCameraId = advertisedId,
+                                    candidateAddress = address,
+                                )
+                            }
+                            if (selected != null && advertisedId != null) {
+                                val camera = CameraDiscoveryResult(advertisedId, selected)
+                                synchronized(resolvedCameraIds) {
+                                    resolvedCameraIds[serviceName] = advertisedId
+                                }
+                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_accepted", "camera_id=$advertisedId; private_ipv4=$selected")
                                 postForGeneration(generation) {
-                                    onFound(selected)
-                                    onStatus("Paired Camera found at $selected.")
+                                    onFound(camera)
+                                    val label = if (expectedCameraId == null) "Camera" else "Paired Camera"
+                                    onStatus("$label found at $selected.")
                                 }
                             } else {
-                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_rejected", "reason=identity_or_private_ipv4_validation_failed; address=${address ?: "missing"}; identity_matches=${advertisedId == expectedCameraId}")
+                                DiagnosticLog.log(AppRole.MONITOR, "nsd_service_rejected", "reason=identity_or_private_ipv4_validation_failed; address=${address ?: "missing"}; identity_valid=${advertisedId != null}")
                             }
                         }
                     })
@@ -193,11 +220,29 @@ internal class LocalCameraNsd(context: Context) {
                 if (serviceName != null) {
                     synchronized(resolvingNames) { resolvingNames.remove(serviceName) }
                 }
-                val expectedPrefix = "lanmonitor-$expectedCameraId"
-                if (serviceName?.startsWith(expectedPrefix) == true) {
-                    DiagnosticLog.log(AppRole.MONITOR, "nsd_matching_service_lost")
+                val cameraId = if (serviceName == null) {
+                    null
+                } else {
+                    synchronized(resolvedCameraIds) { resolvedCameraIds.remove(serviceName) }
+                }
+                if (cameraId != null && (expectedCameraId == null || cameraId == expectedCameraId)) {
+                    DiagnosticLog.log(AppRole.MONITOR, "nsd_matching_service_lost", "camera_id=$cameraId")
                     postForGeneration(generation) {
-                        onLost()
+                        onLost(cameraId)
+                        val message = if (expectedCameraId == null) {
+                            "Camera advertisement disappeared; continuing to search."
+                        } else {
+                            "Paired Camera advertisement disappeared. Searching for it again…"
+                        }
+                        onStatus(message)
+                    }
+                } else if (
+                    cameraId == null &&
+                    expectedCameraId != null &&
+                    serviceName?.startsWith("lanmonitor-$expectedCameraId") == true
+                ) {
+                    postForGeneration(generation) {
+                        onLost(expectedCameraId)
                         onStatus("Paired Camera advertisement disappeared. Searching for it again…")
                     }
                 }
@@ -244,6 +289,7 @@ internal class LocalCameraNsd(context: Context) {
         val listener = discoveryListener
         discoveryListener = null
         synchronized(resolvingNames) { resolvingNames.clear() }
+        synchronized(resolvedCameraIds) { resolvedCameraIds.clear() }
         if (listener != null) {
             runCatching { manager?.stopServiceDiscovery(listener) }
         }
