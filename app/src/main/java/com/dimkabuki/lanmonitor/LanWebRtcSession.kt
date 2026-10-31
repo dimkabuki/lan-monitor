@@ -92,6 +92,8 @@ class LanWebRtcSession(
         private set
     var discoveredCameraAddress by androidx.compose.runtime.mutableStateOf("")
         private set
+    var discoveredCameras by androidx.compose.runtime.mutableStateOf(emptyList<CameraDiscoveryResult>())
+        private set
     var movementStatus by androidx.compose.runtime.mutableStateOf("Waiting for Monitor video.")
         private set
     var remoteAudioMuted by androidx.compose.runtime.mutableStateOf(false)
@@ -111,7 +113,7 @@ class LanWebRtcSession(
     internal val isShuttingDown: Boolean
         get() = shutdownRequested
     @Volatile private var cameraSender: ((String) -> Unit)? = null
-    @Volatile private var cameraPeerAuthenticated = false
+    @Volatile private var cameraPeerJoined = false
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
@@ -245,7 +247,7 @@ class LanWebRtcSession(
         // Only renegotiate with the same peer that was already authenticated when the Activity resumed.
         // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
         val senderAtResume = cameraSender
-        val peerAuthenticatedAtResume = cameraPeerAuthenticated
+        val peerAuthenticatedAtResume = cameraPeerJoined
         cameraRecoveryJob = scope.launch {
             try {
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
@@ -260,7 +262,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; authenticated_peer_at_resume=${peerAuthenticatedAtResume}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_at_resume=${peerAuthenticatedAtResume}",
                 )
 
                 if (captureStalled) {
@@ -296,7 +298,7 @@ class LanWebRtcSession(
                     peerAuthenticatedAtResume &&
                         senderAtResume != null &&
                         cameraSender === senderAtResume &&
-                        cameraPeerAuthenticated
+                        cameraPeerJoined
                 if (signalingConnected) {
                     updateStatus("Camera resumed; refreshing Monitor media connection.")
                     createCameraOffer()
@@ -427,27 +429,61 @@ class LanWebRtcSession(
         if (role != AppRole.MONITOR || disposed || shutdownRequested) return
         DiagnosticLog.log(role, "monitor_discovery_requested", "paired_identity_present=${cameraId.isNotBlank()}")
         discoveredCameraAddress = ""
+        discoveredCameras = emptyList()
         discoveryStatus = "Starting local discovery…"
         val nsd = localCameraNsd ?: LocalCameraNsd(appContext).also { localCameraNsd = it }
         nsd.startDiscovery(
             expectedCameraId = cameraId,
-            onFound = { address ->
-                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_discovered", "host=$address")
-                // Keep the latest validated endpoint for the active reconnect loop.
-                monitorTargetHost = address
+            onFound = { camera ->
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_discovered", "camera_id=${camera.cameraId}; host=${camera.address}")
+                monitorTargetHost = camera.address
                 updateUi {
-                    discoveredCameraAddress = address
-                    discoveryStatus = "Paired Camera found at $address."
+                    discoveredCameras = listOf(camera)
+                    discoveredCameraAddress = camera.address
+                    discoveryStatus = "Paired Camera found at ${camera.address}."
                     if (sessionActive && monitorSender == null) {
-                        status = "Paired Camera found at $address; reconnecting."
+                        status = "Paired Camera found at ${camera.address}; reconnecting."
                     }
                 }
             },
-            onLost = {
-                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_advertisement_lost")
+            onLost = { lostCameraId ->
+                if (lostCameraId == cameraId) {
+                    DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_advertisement_lost", "camera_id=$lostCameraId")
+                    updateUi {
+                        discoveredCameras = discoveredCameras.filterNot { it.cameraId == lostCameraId }
+                        discoveredCameraAddress = ""
+                        discoveryStatus = "Paired Camera advertisement was lost; continuing to search."
+                    }
+                }
+            },
+            onStatus = { message ->
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_discovery_status", message)
+                updateUi { discoveryStatus = message }
+            },
+        )
+    }
+
+    fun discoverCameras() {
+        if (role != AppRole.MONITOR || disposed || shutdownRequested || isBusy || sessionActive) return
+        DiagnosticLog.log(role, "monitor_open_discovery_requested")
+        discoveredCameraAddress = ""
+        discoveredCameras = emptyList()
+        discoveryStatus = "Starting local search…"
+        val nsd = localCameraNsd ?: LocalCameraNsd(appContext).also { localCameraNsd = it }
+        nsd.startDiscovery(
+            expectedCameraId = null,
+            onFound = { camera ->
+                DiagnosticLog.log(AppRole.MONITOR, "monitor_camera_discovered", "camera_id=${camera.cameraId}; host=${camera.address}; mode=open_search")
                 updateUi {
-                    discoveredCameraAddress = ""
-                    discoveryStatus = "Paired Camera advertisement was lost; continuing to search."
+                    discoveredCameras = (discoveredCameras.filterNot { it.cameraId == camera.cameraId } + camera)
+                        .sortedBy { it.address }
+                    discoveryStatus = "Found ${discoveredCameras.size} Camera(s) on the local network."
+                }
+            },
+            onLost = { lostCameraId ->
+                updateUi {
+                    discoveredCameras = discoveredCameras.filterNot { it.cameraId == lostCameraId }
+                    discoveryStatus = "A Camera disappeared. Continuing to search…"
                 }
             },
             onStatus = { message ->
@@ -463,6 +499,7 @@ class LanWebRtcSession(
         runCatching { localCameraNsd?.stopDiscovery() }
         updateUi {
             discoveredCameraAddress = ""
+            discoveredCameras = emptyList()
             discoveryStatus = "Stopped"
         }
     }
@@ -476,13 +513,9 @@ class LanWebRtcSession(
             return
         }
         val requestedToken = token.trim()
-        if (requestedToken.isBlank()) {
-            DiagnosticLog.log(role, "monitor_connect_rejected", "reason=empty_pairing_token")
-            updateStatus("Enter the pairing token shown on the Camera device.")
-            return
-        }
+        val connectionMode = if (requestedToken.isBlank()) "open_lan" else "paired_token"
 
-        DiagnosticLog.log(role, "monitor_connect_requested", "host=$requestedHost; pairing_token_present=true")
+        DiagnosticLog.log(role, "monitor_connect_requested", "host=$requestedHost; mode=$connectionMode")
         shutdownRequested = false
         controllerHasWork = true
         movementDetector.reset()
@@ -598,7 +631,11 @@ class LanWebRtcSession(
                             updateUi {
                                 isBusy = false
                                 sessionActive = true
-                                status = "Connected to signaling; waiting for Camera media."
+                                status = if (token.isBlank()) {
+                                    "Connected on the local network; waiting for Camera media."
+                                } else {
+                                    "Connected to signaling; waiting for Camera media."
+                                }
                             }
                             startMonitorHealthLoop()
 
@@ -957,7 +994,7 @@ class LanWebRtcSession(
                         Unit
                     }
                     cameraSender = sender
-                    cameraPeerAuthenticated = false
+                    cameraPeerJoined = false
                     val writer = launch {
                         for (raw in outbound) send(Frame.Text(raw))
                     }
@@ -975,19 +1012,23 @@ class LanWebRtcSession(
 
                             if (!authenticated) {
                                 val suppliedToken = message.optString("token")
-                                val isValidJoin = message.optString("type") == "join" &&
-                                    PairingToken.matches(token, suppliedToken)
-                                if (!isValidJoin) {
-                                    DiagnosticLog.log(role, "camera_pairing_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
+                                val isJoin = message.optString("type") == "join"
+                                // A blank token selects the explicitly open home-LAN mode. A supplied
+                                // non-empty token is still checked for compatibility with QR pairing.
+                                val isAllowedJoin = isJoin &&
+                                    (suppliedToken.isBlank() || PairingToken.matches(token, suppliedToken))
+                                if (!isAllowedJoin) {
+                                    DiagnosticLog.log(role, "camera_join_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
                                     break
                                 }
                                 authenticated = true
-                                cameraPeerAuthenticated = true
-                                DiagnosticLog.log(role, "camera_pairing_accepted", "remote_address=$remoteAddress")
+                                cameraPeerJoined = true
+                                val joinMode = if (suppliedToken.isBlank()) "open_lan" else "paired_token"
+                                DiagnosticLog.log(role, "camera_join_accepted", "remote_address=$remoteAddress; mode=$joinMode")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
-                                updateStatus("Monitor paired; negotiating WebRTC.")
+                                updateStatus("Monitor connected; negotiating WebRTC.")
                                 scope.launch { createCameraOffer() }
                             } else {
                                 handleSignalMessage(message)
@@ -1007,7 +1048,7 @@ class LanWebRtcSession(
                     } finally {
                         DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
                         cameraSender = null
-                        cameraPeerAuthenticated = false
+                        cameraPeerJoined = false
                         outbound.close()
                         writer.cancel()
                         if (authenticated && !shutdownRequested && !disposed) {
@@ -1451,7 +1492,7 @@ class LanWebRtcSession(
         cameraServer = null
         monitorSender = null
         cameraSender = null
-        cameraPeerAuthenticated = false
+        cameraPeerJoined = false
         closePeerConnection()
 
         localRenderer?.let { renderer -> runCatching { localVideoTrack?.removeSink(renderer) } }
