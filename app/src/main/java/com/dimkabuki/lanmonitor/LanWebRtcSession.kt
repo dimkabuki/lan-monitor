@@ -1616,6 +1616,32 @@ class LanWebRtcSession(
         override fun onSetFailure(error: String) = onFailure.invoke(error)
     }
 
+    private fun closeCameraPeerConnection(peer: CameraMonitorPeer) {
+        synchronized(peer.localCandidateLock) {
+            peer.localDescriptionSignaled = false
+            peer.pendingLocalCandidates.clear()
+        }
+        synchronized(peer.remoteCandidateLock) {
+            peer.remoteDescriptionSet = false
+            peer.pendingRemoteCandidates.clear()
+        }
+        val connection = peer.peerConnection
+        peer.peerConnection = null
+        runCatching { connection?.close() }
+        runCatching { connection?.dispose() }
+    }
+
+    private fun resetCameraPeerDescriptionState(peer: CameraMonitorPeer) {
+        synchronized(peer.localCandidateLock) {
+            peer.localDescriptionSignaled = false
+            peer.pendingLocalCandidates.clear()
+        }
+        synchronized(peer.remoteCandidateLock) {
+            peer.remoteDescriptionSet = false
+            peer.pendingRemoteCandidates.clear()
+        }
+    }
+
     private fun closePeerConnection() {
         synchronized(candidateLock) {
             localDescriptionSignaled = false
@@ -1661,9 +1687,8 @@ class LanWebRtcSession(
         localCameraNsd = null
         runCatching { cameraServer?.stop(500, 1_000) }
         cameraServer = null
+        cameraPeers.values.toList().forEach(::releaseCameraPeer)
         monitorSender = null
-        cameraSender = null
-        cameraPeerJoined = false
         closePeerConnection()
 
         localRenderer?.let { renderer -> runCatching { localVideoTrack?.removeSink(renderer) } }
@@ -1690,11 +1715,12 @@ class LanWebRtcSession(
         lastMovementAnalysisError = null
         movementDetector.reset()
         remoteAudioMuteState.reset()
-        serverConnectionClaimed.set(false)
+        connectedMonitorCount = 0
         controllerHasWork = false
         updateUi {
             sessionActive = false
             isBusy = false
+            connectedMonitorCount = 0
             movementStatus = "Not active."
             remoteAudioMuted = false
         }
