@@ -997,36 +997,53 @@ class LanWebRtcSession(
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
                         return@webSocket
                     }
-                    if (!serverConnectionClaimed.compareAndSet(false, true)) {
-                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=monitor_already_claimed; remote_address=$remoteAddress")
-                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Only one Monitor is supported in M2"))
-                        return@webSocket
-                    }
-                    DiagnosticLog.log(role, "camera_socket_opened", "remote_address=$remoteAddress")
 
                     val outbound = Channel<String>(Channel.UNLIMITED)
                     val sender: (String) -> Unit = { raw ->
                         outbound.trySend(raw)
                         Unit
                     }
-                    cameraSender = sender
-                    cameraPeerJoined = false
+                    val peer = CameraMonitorPeer(
+                        id = java.util.UUID.randomUUID().toString(),
+                        remoteAddress = remoteAddress,
+                        sender = sender,
+                    )
+                    if (!admitCameraPeer(peer)) {
+                        DiagnosticLog.log(
+                            role,
+                            "camera_socket_rejected",
+                            "reason=monitor_capacity_reached; max_monitors=${CameraPeerAdmissionPolicy.MAX_MONITORS}; remote_address=$remoteAddress",
+                        )
+                        outbound.close()
+                        close(
+                            CloseReason(
+                                CloseReason.Codes.VIOLATED_POLICY,
+                                "Camera already has ${CameraPeerAdmissionPolicy.MAX_MONITORS} connected Monitors.",
+                            ),
+                        )
+                        return@webSocket
+                    }
+
+                    DiagnosticLog.log(
+                        role,
+                        "camera_socket_opened",
+                        "peer_id=${peer.id}; remote_address=$remoteAddress; reserved_slots=${cameraPeerAdmission.activeCount()}",
+                    )
                     val writer = launch {
                         for (raw in outbound) send(Frame.Text(raw))
                     }
-                    var authenticated = false
                     try {
                         for (frame in incoming) {
                             if (frame !is Frame.Text) continue
                             val message = try {
                                 JSONObject(frame.readText())
                             } catch (_: Exception) {
-                                DiagnosticLog.log(role, "camera_signaling_message_malformed")
+                                DiagnosticLog.log(role, "camera_signaling_message_malformed", "peer_id=${peer.id}")
                                 outbound.trySend(JSONObject().put("type", "error").put("message", "Malformed signaling message.").toString())
                                 continue
                             }
 
-                            if (!authenticated) {
+                            if (!peer.joined) {
                                 val suppliedToken = message.optString("token")
                                 val joinMode = CameraJoinPolicy.resolve(
                                     messageType = message.optString("type"),
@@ -1034,19 +1051,23 @@ class LanWebRtcSession(
                                     suppliedToken = suppliedToken,
                                 )
                                 if (joinMode == null) {
-                                    DiagnosticLog.log(role, "camera_join_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
+                                    DiagnosticLog.log(role, "camera_join_rejected", "peer_id=${peer.id}; message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
                                     break
                                 }
-                                authenticated = true
-                                cameraPeerJoined = true
-                                DiagnosticLog.log(role, "camera_join_accepted", "remote_address=$remoteAddress; mode=${joinMode.name.lowercase()}")
+                                peer.joined = true
+                                updateCameraMonitorCount()
+                                DiagnosticLog.log(
+                                    role,
+                                    "camera_join_accepted",
+                                    "peer_id=${peer.id}; remote_address=$remoteAddress; mode=${joinMode.name.lowercase()}",
+                                )
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
-                                updateStatus("Monitor connected; negotiating WebRTC.")
-                                scope.launch { createCameraOffer() }
+                                updateStatus("Monitor connected (${currentJoinedMonitorCount()}/${CameraPeerAdmissionPolicy.MAX_MONITORS}); negotiating WebRTC.")
+                                scope.launch { createCameraOffer(peer) }
                             } else {
-                                handleSignalMessage(message)
+                                handleSignalMessage(message, cameraPeer = peer)
                             }
                         }
                     } catch (cancelled: CancellationException) {
@@ -1055,30 +1076,20 @@ class LanWebRtcSession(
                         DiagnosticLog.log(
                             role,
                             "camera_signaling_socket_error",
-                            "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                            "peer_id=${peer.id}; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
                         )
                         if (!shutdownRequested && !disposed) {
                             updateStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
                         }
                     } finally {
-                        DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
-                        cameraSender = null
-                        cameraPeerJoined = false
+                        DiagnosticLog.log(
+                            role,
+                            "camera_socket_closed",
+                            "peer_id=${peer.id}; joined=${peer.joined}; remote_address=$remoteAddress",
+                        )
                         outbound.close()
                         writer.cancel()
-                        if (authenticated && !shutdownRequested && !disposed) {
-                            // Keep the single-Monitor gate closed until the previous peer is
-                            // disposed; otherwise a fast retry can race with the new offer.
-                            scope.launch {
-                                closePeerConnection()
-                                if (!shutdownRequested && !disposed) {
-                                    updateStatus("Monitor disconnected. Waiting for Monitor.")
-                                }
-                                serverConnectionClaimed.set(false)
-                            }
-                        } else {
-                            serverConnectionClaimed.set(false)
-                        }
+                        releaseCameraPeer(peer)
                     }
                 }
             }
