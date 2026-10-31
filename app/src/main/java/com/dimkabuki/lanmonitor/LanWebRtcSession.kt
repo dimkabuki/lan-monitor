@@ -1012,12 +1012,12 @@ class LanWebRtcSession(
 
                             if (!authenticated) {
                                 val suppliedToken = message.optString("token")
-                                val isJoin = message.optString("type") == "join"
-                                // A blank token selects the explicitly open home-LAN mode. A supplied
-                                // non-empty token is still checked for compatibility with QR pairing.
-                                val isAllowedJoin = isJoin &&
-                                    (suppliedToken.isBlank() || PairingToken.matches(token, suppliedToken))
-                                if (!isAllowedJoin) {
+                                val joinMode = CameraJoinPolicy.resolve(
+                                    messageType = message.optString("type"),
+                                    expectedToken = token,
+                                    suppliedToken = suppliedToken,
+                                )
+                                if (joinMode == null) {
                                     DiagnosticLog.log(role, "camera_join_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
@@ -1025,8 +1025,7 @@ class LanWebRtcSession(
                                 }
                                 authenticated = true
                                 cameraPeerJoined = true
-                                val joinMode = if (suppliedToken.isBlank()) "open_lan" else "paired_token"
-                                DiagnosticLog.log(role, "camera_join_accepted", "remote_address=$remoteAddress; mode=$joinMode")
+                                DiagnosticLog.log(role, "camera_join_accepted", "remote_address=$remoteAddress; mode=${joinMode.name.lowercase()}")
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
                                 updateStatus("Monitor connected; negotiating WebRTC.")
                                 scope.launch { createCameraOffer() }
