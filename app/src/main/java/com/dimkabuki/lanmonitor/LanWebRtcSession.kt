@@ -62,7 +62,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * M2 media/session controller. Signaling uses a single authenticated Monitor over the home LAN.
+ * LAN media/session controller. Camera signaling supports up to two independent Monitor peers.
  * Media is carried directly by WebRTC; this controller does not configure STUN or TURN servers.
  */
 class LanWebRtcSession(
