@@ -511,7 +511,17 @@ private fun CameraScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                NotificationPermissionNotice(context = context, visible = session.sessionActive)
+                if (
+                    session.sessionActive &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Text(
+                        "Notifications are disabled.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -956,7 +966,7 @@ private fun MonitorScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Camera {camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
+                                        Text("Camera ${camera.cameraId.take(8)}", style = MaterialTheme.typography.titleSmall)
                                         Text(camera.address, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Button(
@@ -998,7 +1008,7 @@ private fun MonitorScreen(
             }
         }
 
-        if (compactVideoMode) {
+        if (fullScreen && !isPictureInPictureMode) {
             IconButton(
                 onClick = { fullScreen = false },
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp),
