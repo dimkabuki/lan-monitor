@@ -1144,13 +1144,21 @@ class LanWebRtcSession(
         DiagnosticLog.log(role, "webrtc_offer_creation_started", "peer_id=${peer.id}")
         try {
             val connection = createPeerConnection(isCamera = true, cameraPeer = peer)
+            val peerGeneration = peer.peerConnectionGeneration
             connection.createOffer(
                 createSdpObserver(
                     onCreateSuccess = { description ->
-                        if (peer.closed.get() || peer.peerConnection !== connection) return@createSdpObserver
+                        if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                            return@createSdpObserver
+                        }
                         connection.setLocalDescription(
                             createSdpObserver(
-                                onSetSuccess = { publishLocalDescription("offer", description, cameraPeer = peer) },
+                                onSetSuccess = {
+                                    if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                                        return@createSdpObserver
+                                    }
+                                    publishLocalDescription("offer", description, cameraPeer = peer)
+                                },
                                 onFailure = {
                                     DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "peer_id=${peer.id}; error=$it")
                                     updateStatus("Could not set local offer for Monitor ${peer.id.take(8)}: $it")
@@ -1160,6 +1168,9 @@ class LanWebRtcSession(
                         )
                     },
                     onFailure = {
+                        if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                            return@createSdpObserver
+                        }
                         DiagnosticLog.log(role, "webrtc_offer_creation_failed", "peer_id=${peer.id}; error=$it")
                         updateStatus("Could not create offer for Monitor ${peer.id.take(8)}: $it")
                     },
@@ -1456,10 +1467,12 @@ class LanWebRtcSession(
         connection.setRemoteDescription(
             createSdpObserver(
                 onSetSuccess = {
+                    if (cameraPeer.closed.get() || cameraPeer.peerConnection !== connection) return@createSdpObserver
                     markRemoteDescriptionSet(cameraPeer)
                     updateStatus("Answer accepted from Monitor ${cameraPeer.id.take(8)}.")
                 },
                 onFailure = {
+                    if (cameraPeer.closed.get() || cameraPeer.peerConnection !== connection) return@createSdpObserver
                     DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "peer_id=${cameraPeer.id}; error=$it")
                     updateStatus("Could not accept answer from Monitor ${cameraPeer.id.take(8)}: $it")
                 },
