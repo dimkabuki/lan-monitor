@@ -26,6 +26,26 @@ class CameraDiscoveryPolicyTest {
         )
     }
 
+
+    @Test
+    fun acceptsAnyValidCameraIdentityOnThePrivateLanWithoutPairing() {
+        assertEquals(
+            "192.168.1.45",
+            CameraDiscoveryPolicy.selectDiscoveredCamera(
+                "c8d8aa40-9f8f-4e51-a92a-472d64bf9b15",
+                "192.168.1.45",
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsInvalidIdentityOrNonPrivateEndpointInOpenDiscovery() {
+        assertNull(CameraDiscoveryPolicy.selectDiscoveredCamera(null, "192.168.1.45"))
+        assertNull(CameraDiscoveryPolicy.selectDiscoveredCamera("not-a-uuid", "192.168.1.45"))
+        assertNull(CameraDiscoveryPolicy.selectDiscoveredCamera(cameraId, "8.8.8.8"))
+        assertNull(CameraDiscoveryPolicy.selectDiscoveredCamera(cameraId, "localhost"))
+    }
+
     @Test
     fun rejectsMalformedIdentityAndNonPrivateAddresses() {
         assertNull(CameraDiscoveryPolicy.selectAddress("bad-id", cameraId, "192.168.1.32"))

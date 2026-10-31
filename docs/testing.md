@@ -4,7 +4,7 @@
 
 The required status-check context is `build-and-test` in the Android CI workflow. Each pull request targeting `main` compiles the app's debug Kotlin code with `:app:compileDebugKotlin`, runs `:app:testDebugUnitTest`, and uploads unit-test reports for 14 days. It does not produce an APK artifact.
 
-Automated JVM tests cover role labels, private IPv4 validation (including rejection of reverse-DNS hostnames as numeric peer addresses), pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
+Automated JVM tests cover role labels, private IPv4 validation (including rejection of reverse-DNS hostnames as numeric peer addresses), open-LAN and paired join admission, pairing-token format and exact matching, decoded-frame health boundaries, versioned QR-payload validation, paired and unpaired discovery identity/address policy, reconnect backoff, the same-process active-session registry's Stop/error callback routing, movement confirmation/brightness compensation/cooldown policy, and remote-audio mute-state transitions. CI does not prove QR camera operation, actual DNS-SD/mDNS discovery on Wi-Fi, WebRTC media, audible audio output, or Android Activity window/lifecycle behavior.
 
 ## Appearance and responsive screen headers
 
@@ -65,11 +65,14 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] Light-theme text, buttons, fields and system-bar icons remain legible when light theme is selected.
 - [ ] The launcher displays the new colorful screen-mirroring icon.
 
-### 2. Pairing and connection
+### 2. Discovery and connection
 
-- [ ] Camera starts from an explicit user tap and shows its pairing QR and temporary token.
-- [ ] Monitor scans the Camera QR, parses it, and loads a private LAN address plus token.
-- [ ] Camera advertises its stable identity with DNS-SD/mDNS while the Camera session is active.
+- [ ] Camera starts from an explicit user tap and advertises its stable identity with DNS-SD/mDNS.
+- [ ] Monitor can search before any QR scan and lists each valid Lan Monitor Camera found on the LAN.
+- [ ] Unpaired discovery validates the canonical Camera identity, protocol version and private IPv4 endpoint.
+- [ ] Selecting a discovered Camera connects without scanning a QR or entering a token.
+- [ ] Open LAN join is accepted from a private IPv4 peer; a non-empty wrong token remains rejected.
+- [ ] The Camera also continues to support the optional QR/token pairing flow.
 - [ ] After QR scan, Monitor automatically searches for the exact paired Camera identity and updates the address when a matching private IPv4 endpoint resolves.
 - [ ] The discovery advertisement does not contain the pairing token.
 - [ ] During an active session, a Camera IP change updates the paired endpoint and signaling/WebRTC reconnects without rescanning the QR.
@@ -78,7 +81,8 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 - [ ] If discovery is blocked or fails, the QR address and manual IP/token fields remain usable.
 - [ ] A malformed/unsupported QR is rejected without crashing.
 - [ ] Manual IP/token entry remains available as a fallback.
-- [ ] Wrong pairing token is rejected; public or malformed IPv4 addresses are refused.
+- [ ] Wrong non-empty pairing token is rejected; public or malformed IPv4 addresses are refused.
+- [ ] Confirm the trust boundary is understood: any device on the trusted private LAN can connect without a token while open LAN mode is enabled.
 - [ ] Initial connection completes within 10 seconds on the working home LAN.
 - [ ] Re-scan/re-pair behavior is understandable after Camera Stop/Start creates a new session token.
 

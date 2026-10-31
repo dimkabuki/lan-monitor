@@ -1,13 +1,13 @@
 # Agent Progress
 
-## Current status — 2026-10-25 (live GitHub verification)
+## Current status — 2026-10-31 (live GitHub verification)
 
 - **Repository:** [dimkabuki/lan-monitor](https://github.com/dimkabuki/lan-monitor); default branch `main`; auto-merge enabled repository-wide with squash as the only merge method.
-- **Verified `main` head:** `d37dbacb05dc338e6f8322af0ab0b351d30facc2`, after merged PRs [#15](https://github.com/dimkabuki/lan-monitor/pull/15), [#16](https://github.com/dimkabuki/lan-monitor/pull/16), and [#17](https://github.com/dimkabuki/lan-monitor/pull/17). No open PRs existed when this feature branch was started.
-- **Latest verified development APK:** [snapshot-d37dbac](https://github.com/dimkabuki/lan-monitor/releases/tag/snapshot-d37dbac), published by Android Development Release workflow [run #40177994094](https://github.com/dimkabuki/lan-monitor/actions/runs/40177994094).
-- **Merged fixes:** PR #16 validates the numeric Ktor peer address rather than reverse-resolved hostname; PR #17 moves the theme toggle below the screen title to avoid narrow-header wrapping. CI and post-merge release passed for both. The user reports that the original pairing problem now appears fixed; acceptance remains based on actual device behavior, not CI.
-- **Current PR #18:** [feat: improve monitor viewing and camera resume recovery](https://github.com/dimkabuki/lan-monitor/pull/18), branch `feat/monitor-fullscreen-pip-resume-recovery`. It adds the compact role-selection screen and version/build label, bottom-positioned technical controls, Monitor full-screen/Picture-in-Picture, and guarded Camera foreground-resume recovery with JVM policy tests. PR CI and physical-device acceptance are pending.
-- **Next action:** enable check-gated squash auto-merge, inspect the PR CI result, and verify the post-merge development APK. Then test Monitor full-screen/PiP and Camera foreground-resume recovery on the two Samsung phones.
+- **Verified `main` head:** `fb1ac5c14ae5f4d4a4b55ba65dfac8b673414583`; PR #18 is merged. Latest verified Android CI manual run #87 and Android Development Release run #18 both passed on 2026-10-25.
+- **Current branch / PR:** `feat/open-lan-camera-discovery`, [PR #19](https://github.com/dimkabuki/lan-monitor/pull/19). It adds unpaired mDNS search/listing, tokenless open-LAN joins, and deterministic JVM tests for discovery and handshake policies. The first PR CI run exposed two Kotlin compile errors (internal discovery-result type exposed by a public property; stale Camera-resume variable references); both have been corrected. CI must pass on the latest head before merge.
+- **Current implementation boundary:** the Camera still supports only one Monitor. The existing socket claim, single sender and shared WebRTC peer state make a second Monitor unsupported; enabling it requires a separate per-peer signaling/WebRTC refactor.
+- **Trust boundary:** open-LAN joins accept any client with an accepted private IPv4 source address. Use only a trusted home Wi-Fi network; QR/token pairing remains optional but does not restrict tokenless joins.
+- **Next action:** verify the latest PR #19 `build-and-test` result, then implement multi-Monitor peer isolation in a separate PR. Physical DNS-SD/WebRTC behavior remains `NOT TESTED` until checked on the two Samsung phones.
 - **Merged M5 movement PR:** [PR #11](https://github.com/dimkabuki/lan-monitor/pull/11) adds local decoded-frame movement analysis, Android movement notifications, visible Monitor status, deterministic JVM tests, and updated documentation.
 - **M3 local-discovery CI history:** [Android CI run #41](https://github.com/dimkabuki/lan-monitor/actions/runs/40047058278) passed on `d21def77a9595c37d072323d32dea8b30fdf14f4`. Run #39 exposed Android NSD API mismatches; those were corrected before run #41 passed. This historical result does not replace checking current PR CI.
 - **Local discovery implementation in PR #6:**
