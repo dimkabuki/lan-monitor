@@ -68,9 +68,14 @@ Run the full checklist with both role assignments: (A) S20 FE as Camera and S25 
 ### 2. Discovery and connection
 
 - [ ] Camera starts from an explicit user tap and advertises its stable identity with DNS-SD/mDNS.
+- [ ] Camera shows the number of currently connected Monitor peers and its maximum capacity of two.
 - [ ] Monitor can search before any QR scan and lists each valid Lan Monitor Camera found on the LAN.
 - [ ] Unpaired discovery validates the canonical Camera identity, protocol version and private IPv4 endpoint.
 - [ ] Selecting a discovered Camera connects without scanning a QR or entering a token.
+- [ ] Two Monitor devices connect simultaneously to one Camera and both receive decoded video and audible audio.
+- [ ] Stopping or disconnecting either Monitor leaves the other Monitor's video/audio stream active.
+- [ ] Reconnecting one Monitor does not renegotiate or reset the other Monitor's peer connection.
+- [ ] A third Monitor is rejected while two peer slots are occupied; releasing either slot allows a new Monitor to connect.
 - [ ] Open LAN join is accepted from a private IPv4 peer; a non-empty wrong token remains rejected.
 - [ ] The Camera also continues to support the optional QR/token pairing flow.
 - [ ] After QR scan, Monitor automatically searches for the exact paired Camera identity and updates the address when a matching private IPv4 endpoint resolves.

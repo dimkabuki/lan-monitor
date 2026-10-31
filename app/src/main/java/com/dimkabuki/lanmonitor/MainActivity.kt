@@ -404,6 +404,12 @@ private fun CameraScreen(
             }
         }
         Text("Status: ${session.status}", style = MaterialTheme.typography.bodyLarge)
+        if (session.sessionActive) {
+            Text(
+                "Connected Monitors: ${session.connectedMonitorCount}/${CameraPeerAdmissionPolicy.MAX_MONITORS}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         if (session.sessionActive || session.isBusy) {
             NotificationPermissionNotice(context = context, visible = true)
         }

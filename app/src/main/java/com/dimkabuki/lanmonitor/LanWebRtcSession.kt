@@ -58,21 +58,41 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoSink
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * M2 media/session controller. Signaling uses a single authenticated Monitor over the home LAN.
+ * LAN media/session controller. Camera signaling supports up to two independent Monitor peers.
  * Media is carried directly by WebRTC; this controller does not configure STUN or TURN servers.
  */
 class LanWebRtcSession(
     context: Context,
     internal val role: AppRole,
 ) {
+    private class CameraMonitorPeer(
+        val id: String,
+        val remoteAddress: String,
+        val sender: (String) -> Unit,
+    ) {
+        val closed = AtomicBoolean(false)
+        val localCandidateLock = Any()
+        val remoteCandidateLock = Any()
+        val pendingLocalCandidates = mutableListOf<IceCandidate>()
+        val pendingRemoteCandidates = mutableListOf<IceCandidate>()
+        @Volatile var joined = false
+        @Volatile var videoHealthy = false
+        @Volatile var localDescriptionSignaled = false
+        @Volatile var remoteDescriptionSet = false
+        @Volatile var peerConnectionGeneration = 0L
+        @Volatile var peerConnection: PeerConnection? = null
+    }
+
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val eglBase: EglBase = EglBase.create()
-    private val serverConnectionClaimed = AtomicBoolean(false)
+    private val cameraPeerAdmission = CameraPeerAdmissionPolicy()
+    private val cameraPeers = ConcurrentHashMap<String, CameraMonitorPeer>()
     private val candidateLock = Any()
     private val remoteCandidateLock = Any()
 
@@ -81,6 +101,8 @@ class LanWebRtcSession(
     var isBusy by androidx.compose.runtime.mutableStateOf(false)
         private set
     var sessionActive by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    var connectedMonitorCount by androidx.compose.runtime.mutableIntStateOf(0)
         private set
     var cameraAddresses by androidx.compose.runtime.mutableStateOf(emptyList<String>())
         private set
@@ -112,8 +134,6 @@ class LanWebRtcSession(
         get() = disposed
     internal val isShuttingDown: Boolean
         get() = shutdownRequested
-    @Volatile private var cameraSender: ((String) -> Unit)? = null
-    @Volatile private var cameraPeerJoined = false
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
@@ -244,10 +264,9 @@ class LanWebRtcSession(
         if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
         if (cameraRecoveryJob?.isActive == true) return
 
-        // Only renegotiate with the same peer that had already joined when the Activity resumed.
-        // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
-        val senderAtResume = cameraSender
-        val peerJoinedAtResume = cameraPeerJoined
+        // Refresh only peers that were already joined when the Activity resumed. A new socket
+        // negotiates its own offer and must not receive a duplicate one here.
+        val peersAtResume = cameraPeers.values.filter { it.joined && !it.closed.get() }
         cameraRecoveryJob = scope.launch {
             try {
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
@@ -262,7 +281,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_at_resume=${peerJoinedAtResume}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_count_at_resume=${peersAtResume.size}",
                 )
 
                 if (captureStalled) {
@@ -294,21 +313,19 @@ class LanWebRtcSession(
                 }
 
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
-                val signalingConnected =
-                    peerJoinedAtResume &&
-                        senderAtResume != null &&
-                        cameraSender === senderAtResume &&
-                        cameraPeerJoined
-                if (signalingConnected) {
-                    updateStatus("Camera resumed; refreshing Monitor media connection.")
-                    createCameraOffer()
+                val connectedPeers = peersAtResume.filter { peer ->
+                    !peer.closed.get() && peer.joined && cameraPeers[peer.id] === peer
+                }
+                connectedPeers.forEach(::createCameraOffer)
+                if (connectedPeers.isNotEmpty()) {
+                    updateStatus("Camera resumed; refreshing media for ${connectedPeers.size} Monitor(s).")
                 } else {
-                    updateStatus("Camera resumed; waiting for Monitor to reconnect.")
+                    updateStatus("Camera resumed; waiting for Monitor to connect.")
                 }
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_completed",
-                    "capture_restarted=${captureStalled}; signaling_reoffered=${signalingConnected}",
+                    "capture_restarted=${captureStalled}; signaling_peers_refreshed=${connectedPeers.size}",
                 )
             } finally {
                 cameraRecoveryJob = null
@@ -981,36 +998,53 @@ class LanWebRtcSession(
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Local private IPv4 clients only"))
                         return@webSocket
                     }
-                    if (!serverConnectionClaimed.compareAndSet(false, true)) {
-                        DiagnosticLog.log(role, "camera_socket_rejected", "reason=monitor_already_claimed; remote_address=$remoteAddress")
-                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Only one Monitor is supported in M2"))
-                        return@webSocket
-                    }
-                    DiagnosticLog.log(role, "camera_socket_opened", "remote_address=$remoteAddress")
 
                     val outbound = Channel<String>(Channel.UNLIMITED)
                     val sender: (String) -> Unit = { raw ->
                         outbound.trySend(raw)
                         Unit
                     }
-                    cameraSender = sender
-                    cameraPeerJoined = false
+                    val peer = CameraMonitorPeer(
+                        id = java.util.UUID.randomUUID().toString(),
+                        remoteAddress = remoteAddress,
+                        sender = sender,
+                    )
+                    if (!admitCameraPeer(peer)) {
+                        DiagnosticLog.log(
+                            role,
+                            "camera_socket_rejected",
+                            "reason=monitor_capacity_reached; max_monitors=${CameraPeerAdmissionPolicy.MAX_MONITORS}; remote_address=$remoteAddress",
+                        )
+                        outbound.close()
+                        close(
+                            CloseReason(
+                                CloseReason.Codes.VIOLATED_POLICY,
+                                "Camera already has ${CameraPeerAdmissionPolicy.MAX_MONITORS} connected Monitors.",
+                            ),
+                        )
+                        return@webSocket
+                    }
+
+                    DiagnosticLog.log(
+                        role,
+                        "camera_socket_opened",
+                        "peer_id=${peer.id}; remote_address=$remoteAddress; reserved_slots=${cameraPeerAdmission.activeCount()}",
+                    )
                     val writer = launch {
                         for (raw in outbound) send(Frame.Text(raw))
                     }
-                    var authenticated = false
                     try {
                         for (frame in incoming) {
                             if (frame !is Frame.Text) continue
                             val message = try {
                                 JSONObject(frame.readText())
                             } catch (_: Exception) {
-                                DiagnosticLog.log(role, "camera_signaling_message_malformed")
+                                DiagnosticLog.log(role, "camera_signaling_message_malformed", "peer_id=${peer.id}")
                                 outbound.trySend(JSONObject().put("type", "error").put("message", "Malformed signaling message.").toString())
                                 continue
                             }
 
-                            if (!authenticated) {
+                            if (!peer.joined) {
                                 val suppliedToken = message.optString("token")
                                 val joinMode = CameraJoinPolicy.resolve(
                                     messageType = message.optString("type"),
@@ -1018,19 +1052,23 @@ class LanWebRtcSession(
                                     suppliedToken = suppliedToken,
                                 )
                                 if (joinMode == null) {
-                                    DiagnosticLog.log(role, "camera_join_rejected", "message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
+                                    DiagnosticLog.log(role, "camera_join_rejected", "peer_id=${peer.id}; message_type=${message.optString("type", "unknown")}; reason=invalid_join_or_token")
                                     outbound.trySend(JSONObject().put("type", "error").put("message", "Invalid pairing token.").toString())
                                     close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid pairing token"))
                                     break
                                 }
-                                authenticated = true
-                                cameraPeerJoined = true
-                                DiagnosticLog.log(role, "camera_join_accepted", "remote_address=$remoteAddress; mode=${joinMode.name.lowercase()}")
+                                peer.joined = true
+                                updateCameraMonitorCount()
+                                DiagnosticLog.log(
+                                    role,
+                                    "camera_join_accepted",
+                                    "peer_id=${peer.id}; remote_address=$remoteAddress; mode=${joinMode.name.lowercase()}",
+                                )
                                 outbound.trySend(JSONObject().put("type", "ready").toString())
-                                updateStatus("Monitor connected; negotiating WebRTC.")
-                                scope.launch { createCameraOffer() }
+                                updateStatus("Monitor connected (${currentJoinedMonitorCount()}/${CameraPeerAdmissionPolicy.MAX_MONITORS}); negotiating WebRTC.")
+                                scope.launch { createCameraOffer(peer) }
                             } else {
-                                handleSignalMessage(message)
+                                handleSignalMessage(message, cameraPeer = peer)
                             }
                         }
                     } catch (cancelled: CancellationException) {
@@ -1039,30 +1077,20 @@ class LanWebRtcSession(
                         DiagnosticLog.log(
                             role,
                             "camera_signaling_socket_error",
-                            "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                            "peer_id=${peer.id}; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
                         )
                         if (!shutdownRequested && !disposed) {
                             updateStatus("Monitor signaling error: ${error.message ?: error.javaClass.simpleName}")
                         }
                     } finally {
-                        DiagnosticLog.log(role, "camera_socket_closed", "authenticated=$authenticated; remote_address=$remoteAddress")
-                        cameraSender = null
-                        cameraPeerJoined = false
+                        DiagnosticLog.log(
+                            role,
+                            "camera_socket_closed",
+                            "peer_id=${peer.id}; joined=${peer.joined}; remote_address=$remoteAddress",
+                        )
                         outbound.close()
                         writer.cancel()
-                        if (authenticated && !shutdownRequested && !disposed) {
-                            // Keep the single-Monitor gate closed until the previous peer is
-                            // disposed; otherwise a fast retry can race with the new offer.
-                            scope.launch {
-                                closePeerConnection()
-                                if (!shutdownRequested && !disposed) {
-                                    updateStatus("Monitor disconnected. Waiting for Monitor.")
-                                }
-                                serverConnectionClaimed.set(false)
-                            }
-                        } else {
-                            serverConnectionClaimed.set(false)
-                        }
+                        releaseCameraPeer(peer)
                     }
                 }
             }
@@ -1070,28 +1098,81 @@ class LanWebRtcSession(
         DiagnosticLog.log(role, "camera_signaling_server_started", "port=$SIGNAL_PORT")
     }
 
-    private fun createCameraOffer() {
-        DiagnosticLog.log(role, "webrtc_offer_creation_started")
+    private fun admitCameraPeer(peer: CameraMonitorPeer): Boolean {
+        if (role != AppRole.CAMERA || shutdownRequested || disposed) return false
+        if (!cameraPeerAdmission.tryAdmit(peer.id)) return false
+        val previous = cameraPeers.putIfAbsent(peer.id, peer)
+        if (previous != null) {
+            cameraPeerAdmission.release(peer.id)
+            return false
+        }
+        return true
+    }
+
+    private fun releaseCameraPeer(peer: CameraMonitorPeer) {
+        if (!peer.closed.compareAndSet(false, true)) return
+        peer.joined = false
+        closeCameraPeerConnection(peer)
+        cameraPeers.remove(peer.id, peer)
+        cameraPeerAdmission.release(peer.id)
+        updateCameraMonitorCount()
+        if (!shutdownRequested && !disposed && role == AppRole.CAMERA) {
+            val remaining = currentJoinedMonitorCount()
+            updateStatus(
+                if (remaining == 0) {
+                    "Monitor disconnected. Waiting for Monitor."
+                } else {
+                    "Monitor disconnected; $remaining Monitor(s) remain connected."
+                },
+            )
+        }
+    }
+
+    private fun currentJoinedMonitorCount(): Int =
+        cameraPeers.values.count { it.joined && !it.closed.get() }
+
+    private fun updateCameraMonitorCount() {
+        val count = currentJoinedMonitorCount()
+        updateUi { connectedMonitorCount = count }
+    }
+
+    private fun createCameraOffer(peer: CameraMonitorPeer) {
+        if (role != AppRole.CAMERA || peer.closed.get() || !peer.joined || cameraPeers[peer.id] !== peer) {
+            DiagnosticLog.log(role, "webrtc_offer_skipped", "peer_id=${peer.id}; reason=peer_not_active")
+            return
+        }
+        DiagnosticLog.log(role, "webrtc_offer_creation_started", "peer_id=${peer.id}")
         try {
-            resetDescriptionState()
-            val connection = createPeerConnection(isCamera = true)
+            val connection = createPeerConnection(isCamera = true, cameraPeer = peer)
+            val peerGeneration = peer.peerConnectionGeneration
             connection.createOffer(
                 createSdpObserver(
-                    onCreateSuccess = { description ->
+                    onCreateSuccess = offerCreated@{ description ->
+                        if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                            return@offerCreated
+                        }
                         connection.setLocalDescription(
                             createSdpObserver(
-                                onSetSuccess = { publishLocalDescription("offer", description) },
+                                onSetSuccess = offerSet@{
+                                    if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                                        return@offerSet
+                                    }
+                                    publishLocalDescription("offer", description, cameraPeer = peer)
+                                },
                                 onFailure = {
-                                    DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "error=$it")
-                                    updateStatus("Could not set local offer: $it")
+                                    DiagnosticLog.log(role, "webrtc_offer_set_local_failed", "peer_id=${peer.id}; error=$it")
+                                    updateStatus("Could not set local offer for Monitor ${peer.id.take(8)}: $it")
                                 },
                             ),
                             description,
                         )
                     },
-                    onFailure = {
-                        DiagnosticLog.log(role, "webrtc_offer_creation_failed", "error=$it")
-                        updateStatus("Could not create offer: $it")
+                    onFailure = offerCreationFailed@{
+                        if (!isCurrentCameraPeerConnection(peer, peerGeneration) || peer.peerConnection !== connection) {
+                            return@offerCreationFailed
+                        }
+                        DiagnosticLog.log(role, "webrtc_offer_creation_failed", "peer_id=${peer.id}; error=$it")
+                        updateStatus("Could not create offer for Monitor ${peer.id.take(8)}: $it")
                     },
                 ),
                 MediaConstraints(),
@@ -1100,44 +1181,91 @@ class LanWebRtcSession(
             DiagnosticLog.log(
                 role,
                 "webrtc_offer_start_failed",
-                "exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
+                "peer_id=${peer.id}; exception=${error.javaClass.simpleName}; message=${error.message.orEmpty()}",
             )
-            updateStatus("Could not start WebRTC offer: ${error.message ?: error.javaClass.simpleName}")
+            updateStatus("Could not start WebRTC for Monitor ${peer.id.take(8)}: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
-    private fun createPeerConnection(isCamera: Boolean): PeerConnection {
-        DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera")
-        closePeerConnection()
-        resetDescriptionState()
+    private fun createPeerConnection(
+        isCamera: Boolean,
+        cameraPeer: CameraMonitorPeer? = null,
+    ): PeerConnection {
+        DiagnosticLog.log(role, "webrtc_peer_connection_create", "local_camera_role=$isCamera; peer_id=${cameraPeer?.id ?: "monitor"}")
+        val peerGeneration = if (isCamera) {
+            val peer = cameraPeer ?: error("Camera peer context is required.")
+            check(!peer.closed.get() && peer.joined) { "Camera Monitor peer is no longer active." }
+            // Invalidate callbacks from the previous PeerConnection before disposing it.
+            peer.peerConnectionGeneration += 1
+            closeCameraPeerConnection(peer)
+            resetCameraPeerDescriptionState(peer)
+            peer.peerConnectionGeneration
+        } else {
+            check(cameraPeer == null) { "Monitor role cannot use a Camera peer context." }
+            closePeerConnection()
+            resetDescriptionState()
+            null
+        }
         val factory = peerConnectionFactory ?: error("WebRTC is not initialized")
         val configuration = PeerConnection.RTCConfiguration(emptyList())
-        val connection = factory.createPeerConnection(configuration, peerConnectionObserver())
+        val connection = factory.createPeerConnection(
+            configuration,
+            peerConnectionObserver(cameraPeer, peerGeneration),
+        )
             ?: error("Could not create WebRTC peer connection.")
-        peerConnection = connection
         if (isCamera) {
+            val peer = checkNotNull(cameraPeer)
+            peer.peerConnection = connection
             connection.addTrack(localVideoTrack ?: error("Camera video is not ready."), listOf(STREAM_ID))
             connection.addTrack(localAudioTrack ?: error("Camera microphone is not ready."), listOf(STREAM_ID))
+        } else {
+            peerConnection = connection
         }
         return connection
     }
 
-    private fun peerConnectionObserver() = object : PeerConnection.Observer {
+    private fun isCurrentCameraPeerConnection(
+        peer: CameraMonitorPeer?,
+        generation: Long?,
+    ): Boolean =
+        peer == null || (
+            generation != null &&
+                !peer.closed.get() &&
+                peer.peerConnectionGeneration == generation
+            )
+
+    private fun peerConnectionObserver(
+        cameraPeer: CameraMonitorPeer? = null,
+        cameraPeerGeneration: Long? = null,
+    ) = object : PeerConnection.Observer {
         override fun onSignalingChange(newState: PeerConnection.SignalingState) {
-            DiagnosticLog.log(role, "webrtc_signaling_state", "state=$newState")
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
+            DiagnosticLog.log(role, "webrtc_signaling_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
-            DiagnosticLog.log(role, "webrtc_ice_connection_state", "state=$newState")
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
+            DiagnosticLog.log(role, "webrtc_ice_connection_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
+            if (role == AppRole.CAMERA && cameraPeer != null) {
+                if (cameraPeer.closed.get()) return
+                when (newState) {
+                    PeerConnection.IceConnectionState.CONNECTED,
+                    PeerConnection.IceConnectionState.COMPLETED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport connected; waiting for media confirmation.")
+                    PeerConnection.IceConnectionState.DISCONNECTED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport disconnected; awaiting reconnect.")
+                    PeerConnection.IceConnectionState.FAILED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport failed; awaiting reconnect.")
+                    PeerConnection.IceConnectionState.CLOSED -> Unit
+                    else -> updateStatus("Establishing direct LAN media connection for Monitor ${cameraPeer.id.take(8)}…")
+                }
+                return
+            }
+
             when (newState) {
                 PeerConnection.IceConnectionState.CONNECTED,
-                PeerConnection.IceConnectionState.COMPLETED -> {
-                    if (role == AppRole.CAMERA) {
-                        updateStatus("Transport connected; waiting for Monitor media confirmation.")
-                    } else {
-                        updateStatus("Transport connected; waiting for decoded video frames.")
-                    }
-                }
+                PeerConnection.IceConnectionState.COMPLETED ->
+                    updateStatus("Transport connected; waiting for decoded video frames.")
                 PeerConnection.IceConnectionState.DISCONNECTED ->
                     updateStatus("Transport disconnected; attempting to recover.")
                 PeerConnection.IceConnectionState.FAILED -> {
@@ -1150,28 +1278,49 @@ class LanWebRtcSession(
         }
 
         override fun onIceConnectionReceivingChange(receiving: Boolean) {
-            DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "receiving=$receiving")
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
+            DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "peer_id=${cameraPeer?.id ?: "monitor"}; receiving=$receiving")
         }
+
         override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {
-            DiagnosticLog.log(role, "webrtc_ice_gathering_state", "state=$newState")
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
+            DiagnosticLog.log(role, "webrtc_ice_gathering_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (!isCurrentCameraPeerConnection(cameraPeer, cameraPeerGeneration)) return
             val candidateType = candidate.sdp.substringAfter(" typ ", "unknown").substringBefore(' ')
-            DiagnosticLog.log(role, "webrtc_local_ice_candidate", "type=$candidateType; mid_present=${candidate.sdpMid != null}; line=${candidate.sdpMLineIndex}")
-            val shouldSend: Boolean
-            synchronized(candidateLock) {
-                shouldSend = localDescriptionSignaled
-                if (!shouldSend) pendingLocalCandidates.add(candidate)
+            DiagnosticLog.log(
+                role,
+                "webrtc_local_ice_candidate",
+                "peer_id=${cameraPeer?.id ?: "monitor"}; type=$candidateType; mid_present=${candidate.sdpMid != null}; line=${candidate.sdpMLineIndex}",
+            )
+            if (role == AppRole.CAMERA) {
+                val peer = cameraPeer ?: return
+                if (peer.closed.get()) return
+                val shouldSend: Boolean
+                synchronized(peer.localCandidateLock) {
+                    shouldSend = peer.localDescriptionSignaled
+                    if (!shouldSend) peer.pendingLocalCandidates.add(candidate)
+                }
+                if (shouldSend) sendIceCandidate(candidate, peer)
+            } else {
+                val shouldSend: Boolean
+                synchronized(candidateLock) {
+                    shouldSend = localDescriptionSignaled
+                    if (!shouldSend) pendingLocalCandidates.add(candidate)
+                }
+                if (shouldSend) sendIceCandidate(candidate)
             }
-            if (shouldSend) sendIceCandidate(candidate)
         }
 
         override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
+
         override fun onAddStream(stream: MediaStream) {
             stream.audioTracks.forEach(::attachRemoteAudioTrack)
             stream.videoTracks.firstOrNull()?.let(::attachRemoteVideoTrack)
         }
+
         override fun onRemoveStream(stream: MediaStream) = Unit
         override fun onDataChannel(dataChannel: DataChannel) = Unit
         override fun onRenegotiationNeeded() = Unit
@@ -1212,23 +1361,27 @@ class LanWebRtcSession(
         updateStatus("Video track received; waiting for decoded frames.")
     }
 
-    private fun handleSignalMessage(message: JSONObject) {
+    private fun handleSignalMessage(
+        message: JSONObject,
+        cameraPeer: CameraMonitorPeer? = null,
+    ) {
         val signalType = message.optString("type", "unknown")
         if (signalType != "health" && signalType != "candidate") {
-            DiagnosticLog.log(role, "signaling_message_received", "type=$signalType")
+            DiagnosticLog.log(role, "signaling_message_received", "peer_id=${cameraPeer?.id ?: "monitor"}; type=$signalType")
         }
         when (signalType) {
-            "ready" -> updateStatus("Pairing accepted; waiting for media negotiation.")
+            "ready" -> updateStatus("Camera accepted the connection; waiting for media negotiation.")
             "offer" -> handleRemoteOffer(message.optString("sdp"))
-            "answer" -> handleRemoteAnswer(message.optString("sdp"))
-            "candidate" -> handleRemoteCandidate(message)
+            "answer" -> handleRemoteAnswer(message.optString("sdp"), cameraPeer)
+            "candidate" -> handleRemoteCandidate(message, cameraPeer)
             "health" -> {
-                if (role == AppRole.CAMERA) {
-                    if (message.optBoolean("videoHealthy", false)) {
-                        updateStatus("Streaming: Monitor confirms decoded video frames.")
-                    } else {
-                        updateStatus("Media not yet confirmed: Monitor reports no recent decoded video frames.")
-                    }
+                if (role == AppRole.CAMERA && cameraPeer != null && !cameraPeer.closed.get()) {
+                    cameraPeer.videoHealthy = message.optBoolean("videoHealthy", false)
+                    val joinedPeers = cameraPeers.values.filter { it.joined && !it.closed.get() }
+                    val healthyPeers = joinedPeers.count { it.videoHealthy }
+                    updateStatus(
+                        "$healthyPeers of ${joinedPeers.size} connected Monitor(s) confirm decoded video.",
+                    )
                 }
             }
             "error" -> {
@@ -1238,7 +1391,7 @@ class LanWebRtcSession(
                 ) {
                     monitorAuthenticationRejected = true
                 }
-                DiagnosticLog.log(role, "signaling_peer_error", "message=$errorMessage")
+                DiagnosticLog.log(role, "signaling_peer_error", "peer_id=${cameraPeer?.id ?: "monitor"}; message=$errorMessage")
                 updateStatus("Signaling error: $errorMessage")
             }
         }
@@ -1297,83 +1450,140 @@ class LanWebRtcSession(
         }
     }
 
-    private fun handleRemoteAnswer(sdp: String) {
-        if (role != AppRole.CAMERA || sdp.isBlank()) {
-            DiagnosticLog.log(role, "webrtc_answer_rejected", "reason=wrong_role_or_empty_sdp")
+    private fun handleRemoteAnswer(
+        sdp: String,
+        cameraPeer: CameraMonitorPeer? = null,
+    ) {
+        if (role != AppRole.CAMERA || sdp.isBlank() || cameraPeer == null || cameraPeer.closed.get()) {
+            DiagnosticLog.log(role, "webrtc_answer_rejected", "reason=wrong_role_missing_peer_or_empty_sdp")
             return
         }
-        DiagnosticLog.log(role, "webrtc_remote_answer_received")
-        val connection = peerConnection ?: run {
-            DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "reason=peer_connection_missing")
+        DiagnosticLog.log(role, "webrtc_remote_answer_received", "peer_id=${cameraPeer.id}")
+        val connection = cameraPeer.peerConnection ?: run {
+            DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "peer_id=${cameraPeer.id}; reason=peer_connection_missing")
             return
         }
         connection.setRemoteDescription(
             createSdpObserver(
                 onSetSuccess = {
-                    markRemoteDescriptionSet()
-                    updateStatus("Answer accepted; confirming media progress.")
+                    if (cameraPeer.closed.get() || cameraPeer.peerConnection !== connection) return@createSdpObserver
+                    markRemoteDescriptionSet(cameraPeer)
+                    updateStatus("Answer accepted from Monitor ${cameraPeer.id.take(8)}.")
                 },
                 onFailure = {
-                    DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "error=$it")
-                    updateStatus("Could not accept Monitor answer: $it")
+                    if (cameraPeer.closed.get() || cameraPeer.peerConnection !== connection) return@createSdpObserver
+                    DiagnosticLog.log(role, "webrtc_remote_answer_rejected", "peer_id=${cameraPeer.id}; error=$it")
+                    updateStatus("Could not accept answer from Monitor ${cameraPeer.id.take(8)}: $it")
                 },
             ),
             SessionDescription(SessionDescription.Type.ANSWER, sdp),
         )
     }
 
-    private fun handleRemoteCandidate(message: JSONObject) {
+    private fun handleRemoteCandidate(
+        message: JSONObject,
+        cameraPeer: CameraMonitorPeer? = null,
+    ) {
         val candidateText = message.optString("candidate")
         if (candidateText.isBlank()) {
-            DiagnosticLog.log(role, "webrtc_remote_ice_candidate_rejected", "reason=empty_candidate")
+            DiagnosticLog.log(role, "webrtc_remote_ice_candidate_rejected", "peer_id=${cameraPeer?.id ?: "monitor"}; reason=empty_candidate")
             return
         }
         val candidateType = candidateText.substringAfter(" typ ", "unknown").substringBefore(' ')
-        DiagnosticLog.log(role, "webrtc_remote_ice_candidate", "type=$candidateType; mid_present=${message.optString("sdpMid").isNotBlank()}")
+        DiagnosticLog.log(
+            role,
+            "webrtc_remote_ice_candidate",
+            "peer_id=${cameraPeer?.id ?: "monitor"}; type=$candidateType; mid_present=${message.optString("sdpMid").isNotBlank()}",
+        )
         val mid = message.optString("sdpMid").takeIf { it.isNotBlank() }
         val candidate = IceCandidate(mid, message.optInt("sdpMLineIndex", 0), candidateText)
-        val shouldAdd: Boolean
-        synchronized(remoteCandidateLock) {
-            shouldAdd = remoteDescriptionSet
-            if (!shouldAdd) pendingRemoteCandidates.add(candidate)
+        if (role == AppRole.CAMERA) {
+            val peer = cameraPeer ?: return
+            if (peer.closed.get()) return
+            val shouldAdd: Boolean
+            synchronized(peer.remoteCandidateLock) {
+                shouldAdd = peer.remoteDescriptionSet
+                if (!shouldAdd) peer.pendingRemoteCandidates.add(candidate)
+            }
+            if (shouldAdd) peer.peerConnection?.addIceCandidate(candidate)
+        } else {
+            val shouldAdd: Boolean
+            synchronized(remoteCandidateLock) {
+                shouldAdd = remoteDescriptionSet
+                if (!shouldAdd) pendingRemoteCandidates.add(candidate)
+            }
+            if (shouldAdd) peerConnection?.addIceCandidate(candidate)
         }
-        if (shouldAdd) peerConnection?.addIceCandidate(candidate)
     }
 
-    private fun markRemoteDescriptionSet() {
-        val candidates: List<IceCandidate>
-        synchronized(remoteCandidateLock) {
-            remoteDescriptionSet = true
-            candidates = pendingRemoteCandidates.toList()
-            pendingRemoteCandidates.clear()
+    private fun markRemoteDescriptionSet(cameraPeer: CameraMonitorPeer? = null) {
+        if (role == AppRole.CAMERA) {
+            val peer = cameraPeer ?: return
+            val candidates: List<IceCandidate>
+            synchronized(peer.remoteCandidateLock) {
+                peer.remoteDescriptionSet = true
+                candidates = peer.pendingRemoteCandidates.toList()
+                peer.pendingRemoteCandidates.clear()
+            }
+            candidates.forEach { candidate ->
+                if (!peer.closed.get()) peer.peerConnection?.addIceCandidate(candidate)
+            }
+        } else {
+            val candidates: List<IceCandidate>
+            synchronized(remoteCandidateLock) {
+                remoteDescriptionSet = true
+                candidates = pendingRemoteCandidates.toList()
+                pendingRemoteCandidates.clear()
+            }
+            candidates.forEach { peerConnection?.addIceCandidate(it) }
         }
-        candidates.forEach { peerConnection?.addIceCandidate(it) }
     }
 
-    private fun publishLocalDescription(type: String, description: SessionDescription) {
-        DiagnosticLog.log(role, "webrtc_local_description_ready", "type=$type")
-        val candidates: List<IceCandidate>
-        synchronized(candidateLock) {
-            localDescriptionSignaled = true
-            candidates = pendingLocalCandidates.toList()
-            pendingLocalCandidates.clear()
+    private fun publishLocalDescription(
+        type: String,
+        description: SessionDescription,
+        cameraPeer: CameraMonitorPeer? = null,
+    ) {
+        DiagnosticLog.log(role, "webrtc_local_description_ready", "peer_id=${cameraPeer?.id ?: "monitor"}; type=$type")
+        if (role == AppRole.CAMERA) {
+            val peer = cameraPeer ?: return
+            val candidates: List<IceCandidate>
+            synchronized(peer.localCandidateLock) {
+                peer.localDescriptionSignaled = true
+                candidates = peer.pendingLocalCandidates.toList()
+                peer.pendingLocalCandidates.clear()
+            }
+            sendSignal(JSONObject().put("type", type).put("sdp", description.description), peer)
+            candidates.forEach { sendIceCandidate(it, peer) }
+        } else {
+            val candidates: List<IceCandidate>
+            synchronized(candidateLock) {
+                localDescriptionSignaled = true
+                candidates = pendingLocalCandidates.toList()
+                pendingLocalCandidates.clear()
+            }
+            sendSignal(JSONObject().put("type", type).put("sdp", description.description))
+            candidates.forEach(::sendIceCandidate)
         }
-        sendSignal(JSONObject().put("type", type).put("sdp", description.description))
-        candidates.forEach(::sendIceCandidate)
     }
 
-    private fun sendIceCandidate(candidate: IceCandidate) {
+    private fun sendIceCandidate(candidate: IceCandidate, cameraPeer: CameraMonitorPeer? = null) {
         sendSignal(
             JSONObject()
                 .put("type", "candidate")
                 .put("sdpMid", candidate.sdpMid ?: "")
                 .put("sdpMLineIndex", candidate.sdpMLineIndex)
                 .put("candidate", candidate.sdp),
+            cameraPeer,
         )
     }
 
-    private fun sendSignal(message: JSONObject) {
-        val sender = if (role == AppRole.CAMERA) cameraSender else monitorSender
+    private fun sendSignal(message: JSONObject, cameraPeer: CameraMonitorPeer? = null) {
+        val sender = if (role == AppRole.CAMERA) {
+            cameraPeer?.takeUnless { it.closed.get() }?.sender
+        } else {
+            monitorSender
+        }
         sender?.invoke(message.toString())
     }
 
@@ -1444,6 +1654,32 @@ class LanWebRtcSession(
         override fun onSetFailure(error: String) = onFailure.invoke(error)
     }
 
+    private fun closeCameraPeerConnection(peer: CameraMonitorPeer) {
+        synchronized(peer.localCandidateLock) {
+            peer.localDescriptionSignaled = false
+            peer.pendingLocalCandidates.clear()
+        }
+        synchronized(peer.remoteCandidateLock) {
+            peer.remoteDescriptionSet = false
+            peer.pendingRemoteCandidates.clear()
+        }
+        val connection = peer.peerConnection
+        peer.peerConnection = null
+        runCatching { connection?.close() }
+        runCatching { connection?.dispose() }
+    }
+
+    private fun resetCameraPeerDescriptionState(peer: CameraMonitorPeer) {
+        synchronized(peer.localCandidateLock) {
+            peer.localDescriptionSignaled = false
+            peer.pendingLocalCandidates.clear()
+        }
+        synchronized(peer.remoteCandidateLock) {
+            peer.remoteDescriptionSet = false
+            peer.pendingRemoteCandidates.clear()
+        }
+    }
+
     private fun closePeerConnection() {
         synchronized(candidateLock) {
             localDescriptionSignaled = false
@@ -1489,9 +1725,8 @@ class LanWebRtcSession(
         localCameraNsd = null
         runCatching { cameraServer?.stop(500, 1_000) }
         cameraServer = null
+        cameraPeers.values.toList().forEach(::releaseCameraPeer)
         monitorSender = null
-        cameraSender = null
-        cameraPeerJoined = false
         closePeerConnection()
 
         localRenderer?.let { renderer -> runCatching { localVideoTrack?.removeSink(renderer) } }
@@ -1518,11 +1753,12 @@ class LanWebRtcSession(
         lastMovementAnalysisError = null
         movementDetector.reset()
         remoteAudioMuteState.reset()
-        serverConnectionClaimed.set(false)
+        connectedMonitorCount = 0
         controllerHasWork = false
         updateUi {
             sessionActive = false
             isBusy = false
+            connectedMonitorCount = 0
             movementStatus = "Not active."
             remoteAudioMuted = false
         }

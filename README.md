@@ -1,13 +1,13 @@
 # Lan Monitor
 
-Lan Monitor is a native Android app for direct, local-network audio/video monitoring between one Camera device and one Monitor device.
+Lan Monitor is a native Android app for direct, local-network audio/video monitoring from one Camera device to up to two Monitor devices.
 
 ## Current implementation
 
-- **Camera:** Start a session from the visible Camera screen. The app captures the rear camera and microphone, and hosts a local WebSocket signaling endpoint.
+- **Camera:** Start a session from the visible Camera screen. The app captures the rear camera and microphone, and hosts a local WebSocket signaling endpoint for up to two independent Monitor peers.
 - **Open LAN discovery:** Monitor can search for all Lan Monitor Cameras advertised on the local network, select one by its stable identity and private IPv4 address, and connect without scanning a QR code or entering a token.
 - **Optional pairing:** Camera also displays a versioned QR payload with its stable identity, private IPv4 address hints, signaling port and temporary token. Scanning the code or entering the token manually selects the paired-token join flow.
-- **Media:** WebRTC carries audio and video directly between peers. No STUN/TURN, cloud signaling, analytics, telemetry or media recording is configured.
+- **Media:** WebRTC carries audio and video directly between the Camera and each Monitor over an independent peer connection. Camera capture tracks are shared; one Monitor's disconnect does not dispose the other Monitor's peer. No STUN/TURN, cloud signaling, analytics, telemetry or media recording is configured.
 - **Session lifecycle:** User-started Camera and Monitor sessions use typed Android foreground services and an ongoing notification with a Stop action. A process-level controller is shared by the UI and foreground service; leaving/recreating the Compose screen detaches the renderer without disposing an active session. Back and notification Stop actions terminate the session, and removing the app task requests cleanup. The controller is retained only in the live app process; process-death recovery is not implemented. Background/screen-off reliability still requires physical-device validation.
 - **Signaling peer validation:** The Camera validates the numeric socket peer address, not a reverse-resolved hostname, and continues to reject peers outside accepted private/link-local IPv4 ranges.
 - **Local discovery and recovery:** Camera advertises its stable UUID with DNS-SD/mDNS. Monitor can search all valid Lan Monitor advertisements before pairing, or filter discovery to the identity imported from a QR. Discovery records contain no pairing token and are accepted only when the resolved identity is a canonical UUID and the endpoint is a private IPv4 address. During an active session, Monitor retries signaling with bounded exponential backoff, uses the latest matching discovery address after IP changes, and rebuilds WebRTC after signaling loss, ICE failure or a sustained frame stall. Recovery is best-effort and still requires physical-device validation.
