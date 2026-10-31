@@ -263,10 +263,9 @@ class LanWebRtcSession(
         if (role != AppRole.CAMERA || !sessionActive || isBusy || disposed || shutdownRequested) return
         if (cameraRecoveryJob?.isActive == true) return
 
-        // Only renegotiate with the same peer that had already joined when the Activity resumed.
-        // A fresh Monitor connection negotiates its own offer and must not receive a duplicate one here.
-        val senderAtResume = cameraSender
-        val peerJoinedAtResume = cameraPeerJoined
+        // Refresh only peers that were already joined when the Activity resumed. A new socket
+        // negotiates its own offer and must not receive a duplicate one here.
+        val peersAtResume = cameraPeers.values.filter { it.joined && !it.closed.get() }
         cameraRecoveryJob = scope.launch {
             try {
                 delay(CameraCaptureRecoveryPolicy.FOREGROUND_RETURN_GRACE_MS)
@@ -281,7 +280,7 @@ class LanWebRtcSession(
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_started",
-                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_at_resume=${peerJoinedAtResume}",
+                    "local_frame_age_ms=${frameAgeMs}; capture_stalled=${captureStalled}; joined_peer_count_at_resume=${peersAtResume.size}",
                 )
 
                 if (captureStalled) {
@@ -313,21 +312,19 @@ class LanWebRtcSession(
                 }
 
                 if (!sessionActive || shutdownRequested || disposed || cameraCapturer !== capturer) return@launch
-                val signalingConnected =
-                    peerJoinedAtResume &&
-                        senderAtResume != null &&
-                        cameraSender === senderAtResume &&
-                        cameraPeerJoined
-                if (signalingConnected) {
-                    updateStatus("Camera resumed; refreshing Monitor media connection.")
-                    createCameraOffer()
+                val connectedPeers = peersAtResume.filter { peer ->
+                    !peer.closed.get() && peer.joined && cameraPeers[peer.id] === peer
+                }
+                connectedPeers.forEach(::createCameraOffer)
+                if (connectedPeers.isNotEmpty()) {
+                    updateStatus("Camera resumed; refreshing media for ${connectedPeers.size} Monitor(s).")
                 } else {
-                    updateStatus("Camera resumed; waiting for Monitor to reconnect.")
+                    updateStatus("Camera resumed; waiting for Monitor to connect.")
                 }
                 DiagnosticLog.log(
                     role,
                     "camera_foreground_resume_recovery_completed",
-                    "capture_restarted=${captureStalled}; signaling_reoffered=${signalingConnected}",
+                    "capture_restarted=${captureStalled}; signaling_peers_refreshed=${connectedPeers.size}",
                 )
             } finally {
                 cameraRecoveryJob = null
