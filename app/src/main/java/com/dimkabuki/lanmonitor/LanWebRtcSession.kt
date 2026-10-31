@@ -1206,22 +1206,33 @@ class LanWebRtcSession(
         return connection
     }
 
-    private fun peerConnectionObserver() = object : PeerConnection.Observer {
+    private fun peerConnectionObserver(cameraPeer: CameraMonitorPeer? = null) = object : PeerConnection.Observer {
         override fun onSignalingChange(newState: PeerConnection.SignalingState) {
-            DiagnosticLog.log(role, "webrtc_signaling_state", "state=$newState")
+            DiagnosticLog.log(role, "webrtc_signaling_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
-            DiagnosticLog.log(role, "webrtc_ice_connection_state", "state=$newState")
+            DiagnosticLog.log(role, "webrtc_ice_connection_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
+            if (role == AppRole.CAMERA && cameraPeer != null) {
+                if (cameraPeer.closed.get()) return
+                when (newState) {
+                    PeerConnection.IceConnectionState.CONNECTED,
+                    PeerConnection.IceConnectionState.COMPLETED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport connected; waiting for media confirmation.")
+                    PeerConnection.IceConnectionState.DISCONNECTED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport disconnected; awaiting reconnect.")
+                    PeerConnection.IceConnectionState.FAILED ->
+                        updateStatus("Monitor ${cameraPeer.id.take(8)} transport failed; awaiting reconnect.")
+                    PeerConnection.IceConnectionState.CLOSED -> Unit
+                    else -> updateStatus("Establishing direct LAN media connection for Monitor ${cameraPeer.id.take(8)}…")
+                }
+                return
+            }
+
             when (newState) {
                 PeerConnection.IceConnectionState.CONNECTED,
-                PeerConnection.IceConnectionState.COMPLETED -> {
-                    if (role == AppRole.CAMERA) {
-                        updateStatus("Transport connected; waiting for Monitor media confirmation.")
-                    } else {
-                        updateStatus("Transport connected; waiting for decoded video frames.")
-                    }
-                }
+                PeerConnection.IceConnectionState.COMPLETED ->
+                    updateStatus("Transport connected; waiting for decoded video frames.")
                 PeerConnection.IceConnectionState.DISCONNECTED ->
                     updateStatus("Transport disconnected; attempting to recover.")
                 PeerConnection.IceConnectionState.FAILED -> {
@@ -1234,28 +1245,46 @@ class LanWebRtcSession(
         }
 
         override fun onIceConnectionReceivingChange(receiving: Boolean) {
-            DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "receiving=$receiving")
+            DiagnosticLog.log(role, "webrtc_ice_receiving_changed", "peer_id=${cameraPeer?.id ?: "monitor"}; receiving=$receiving")
         }
+
         override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {
-            DiagnosticLog.log(role, "webrtc_ice_gathering_state", "state=$newState")
+            DiagnosticLog.log(role, "webrtc_ice_gathering_state", "peer_id=${cameraPeer?.id ?: "monitor"}; state=$newState")
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
             val candidateType = candidate.sdp.substringAfter(" typ ", "unknown").substringBefore(' ')
-            DiagnosticLog.log(role, "webrtc_local_ice_candidate", "type=$candidateType; mid_present=${candidate.sdpMid != null}; line=${candidate.sdpMLineIndex}")
-            val shouldSend: Boolean
-            synchronized(candidateLock) {
-                shouldSend = localDescriptionSignaled
-                if (!shouldSend) pendingLocalCandidates.add(candidate)
+            DiagnosticLog.log(
+                role,
+                "webrtc_local_ice_candidate",
+                "peer_id=${cameraPeer?.id ?: "monitor"}; type=$candidateType; mid_present=${candidate.sdpMid != null}; line=${candidate.sdpMLineIndex}",
+            )
+            if (role == AppRole.CAMERA) {
+                val peer = cameraPeer ?: return
+                if (peer.closed.get()) return
+                val shouldSend: Boolean
+                synchronized(peer.localCandidateLock) {
+                    shouldSend = peer.localDescriptionSignaled
+                    if (!shouldSend) peer.pendingLocalCandidates.add(candidate)
+                }
+                if (shouldSend) sendIceCandidate(candidate, peer)
+            } else {
+                val shouldSend: Boolean
+                synchronized(candidateLock) {
+                    shouldSend = localDescriptionSignaled
+                    if (!shouldSend) pendingLocalCandidates.add(candidate)
+                }
+                if (shouldSend) sendIceCandidate(candidate)
             }
-            if (shouldSend) sendIceCandidate(candidate)
         }
 
         override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
+
         override fun onAddStream(stream: MediaStream) {
             stream.audioTracks.forEach(::attachRemoteAudioTrack)
             stream.videoTracks.firstOrNull()?.let(::attachRemoteVideoTrack)
         }
+
         override fun onRemoveStream(stream: MediaStream) = Unit
         override fun onDataChannel(dataChannel: DataChannel) = Unit
         override fun onRenegotiationNeeded() = Unit
