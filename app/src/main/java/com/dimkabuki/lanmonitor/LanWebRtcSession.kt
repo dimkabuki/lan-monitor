@@ -58,6 +58,7 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoSink
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -68,11 +69,29 @@ class LanWebRtcSession(
     context: Context,
     internal val role: AppRole,
 ) {
+    private class CameraMonitorPeer(
+        val id: String,
+        val remoteAddress: String,
+        val sender: (String) -> Unit,
+    ) {
+        val closed = AtomicBoolean(false)
+        val localCandidateLock = Any()
+        val remoteCandidateLock = Any()
+        val pendingLocalCandidates = mutableListOf<IceCandidate>()
+        val pendingRemoteCandidates = mutableListOf<IceCandidate>()
+        @Volatile var joined = false
+        @Volatile var videoHealthy = false
+        @Volatile var localDescriptionSignaled = false
+        @Volatile var remoteDescriptionSet = false
+        @Volatile var peerConnection: PeerConnection? = null
+    }
+
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val eglBase: EglBase = EglBase.create()
-    private val serverConnectionClaimed = AtomicBoolean(false)
+    private val cameraPeerAdmission = CameraPeerAdmissionPolicy()
+    private val cameraPeers = ConcurrentHashMap<String, CameraMonitorPeer>()
     private val candidateLock = Any()
     private val remoteCandidateLock = Any()
 
@@ -81,6 +100,8 @@ class LanWebRtcSession(
     var isBusy by androidx.compose.runtime.mutableStateOf(false)
         private set
     var sessionActive by androidx.compose.runtime.mutableStateOf(false)
+        private set
+    var connectedMonitorCount by androidx.compose.runtime.mutableIntStateOf(0)
         private set
     var cameraAddresses by androidx.compose.runtime.mutableStateOf(emptyList<String>())
         private set
@@ -112,8 +133,6 @@ class LanWebRtcSession(
         get() = disposed
     internal val isShuttingDown: Boolean
         get() = shutdownRequested
-    @Volatile private var cameraSender: ((String) -> Unit)? = null
-    @Volatile private var cameraPeerJoined = false
     @Volatile private var monitorSender: ((String) -> Unit)? = null
     @Volatile private var lastLocalVideoFrameAtMs = 0L
     @Volatile private var lastRemoteVideoFrameAtMs = 0L
