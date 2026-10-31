@@ -23,20 +23,6 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -44,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -79,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -344,7 +330,7 @@ private fun RoleScreenHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+            Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
         }
         Text(
             title,
@@ -361,7 +347,7 @@ private fun RoleScreenHeader(
 @Composable
 private fun PrimaryActionButton(
     label: String,
-    icon: ImageVector,
+    icon: Int,
     onClick: () -> Unit,
     enabled: Boolean,
     destructive: Boolean = false,
@@ -379,7 +365,7 @@ private fun PrimaryActionButton(
             ButtonDefaults.buttonColors()
         },
     ) {
-        Icon(icon, contentDescription = null)
+        Icon(painterResource(icon), contentDescription = null)
         Spacer(Modifier.size(10.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
     }
@@ -464,7 +450,7 @@ private fun CameraScreen(
                 session.sessionActive -> "Stop session"
                 else -> "Start camera"
             },
-            icon = if (session.sessionActive) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+            icon = if (session.sessionActive) R.drawable.ic_stop else R.drawable.ic_play_arrow,
             onClick = {
                 if (session.sessionActive) session.stopSession() else requestCameraStart()
             },
@@ -497,7 +483,7 @@ private fun CameraScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Filled.Videocam,
+                        R.drawable.ic_videocam,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                     )
@@ -533,7 +519,7 @@ private fun CameraScreen(
                 onClick = { connectionDetailsOpen = true },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             ) {
-                Icon(Icons.Filled.Link, contentDescription = null)
+                Icon(painterResource(R.drawable.ic_link), contentDescription = null)
                 Spacer(Modifier.size(6.dp))
                 Text("Connection details")
             }
@@ -541,7 +527,7 @@ private fun CameraScreen(
                 onClick = { diagnosticsOpen = true },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             ) {
-                Icon(Icons.Filled.Settings, contentDescription = null)
+                Icon(painterResource(R.drawable.ic_settings), contentDescription = null)
                 Spacer(Modifier.size(6.dp))
                 Text("Diagnostics")
             }
@@ -807,7 +793,7 @@ private fun MonitorScreen(
                 if (showActiveSession) {
                     PrimaryActionButton(
                         label = if (session.isBusy && !session.sessionActive) "Connecting…" else "Stop monitoring",
-                        icon = Icons.Filled.Stop,
+                        icon = R.drawable.ic_stop,
                         onClick = session::stopSession,
                         enabled = true,
                         destructive = true,
@@ -815,7 +801,7 @@ private fun MonitorScreen(
                 } else {
                     PrimaryActionButton(
                         label = "Search cameras on LAN",
-                        icon = Icons.Filled.Search,
+                        icon = R.drawable.ic_search,
                         onClick = session::discoverCameras,
                         enabled = !session.isBusy,
                     )
@@ -847,7 +833,7 @@ private fun MonitorScreen(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
                         Icon(
-                            if (session.remoteAudioMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                            if (session.remoteAudioMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up,
                             contentDescription = null,
                         )
                         Spacer(Modifier.size(6.dp))
@@ -857,7 +843,7 @@ private fun MonitorScreen(
                         onClick = { fullScreen = true },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.Fullscreen, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("Full screen")
                     }
@@ -871,7 +857,7 @@ private fun MonitorScreen(
                             },
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                         ) {
-                            Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "Picture in picture")
+                            Icon(painterResource(R.drawable.ic_picture_in_picture), contentDescription = "Picture in picture")
                         }
                     }
                 }
@@ -913,7 +899,7 @@ private fun MonitorScreen(
                         onClick = { connectionOptionsOpen = true },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.Link, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_link), contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("Connection details")
                     }
@@ -921,7 +907,7 @@ private fun MonitorScreen(
                         onClick = { diagnosticsOpen = true },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.Settings, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_settings), contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("Diagnostics")
                     }
@@ -936,7 +922,7 @@ private fun MonitorScreen(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(painterResource(R.drawable.ic_wifi), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.size(8.dp))
                         Text(session.discoveryStatus, style = MaterialTheme.typography.bodySmall)
                     }
@@ -974,7 +960,7 @@ private fun MonitorScreen(
                                         enabled = !session.isBusy,
                                         modifier = Modifier.heightIn(min = 48.dp),
                                     ) {
-                                        Icon(Icons.Filled.Link, contentDescription = null)
+                                        Icon(painterResource(R.drawable.ic_link), contentDescription = null)
                                         Spacer(Modifier.size(4.dp))
                                         Text("Connect")
                                     }
@@ -992,7 +978,7 @@ private fun MonitorScreen(
                         onClick = { connectionOptionsOpen = true },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("QR or manual")
                     }
@@ -1000,7 +986,7 @@ private fun MonitorScreen(
                         onClick = { diagnosticsOpen = true },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.Settings, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_settings), contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("Diagnostics")
                     }
@@ -1013,7 +999,7 @@ private fun MonitorScreen(
                 onClick = { fullScreen = false },
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp),
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Exit full screen")
+                Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Exit full screen")
             }
         }
     }
@@ -1031,7 +1017,7 @@ private fun MonitorScreen(
                         onClick = requestQrScan,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                         Text("Scan Camera QR")
                     }
@@ -1044,7 +1030,7 @@ private fun MonitorScreen(
                             },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = null)
+                            Icon(painterResource(R.drawable.ic_search), contentDescription = null)
                             Spacer(Modifier.size(8.dp))
                             Text("Find paired Camera on LAN")
                         }
